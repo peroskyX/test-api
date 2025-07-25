@@ -172,7 +172,9 @@ import {
   export function needsInitialScheduling(task: TaskSelect): boolean {
     const hasDateWithoutSpecificTime = task.startTime ? isDateOnlyWithoutTime(task.startTime) : false;
     const hasDeadlineButNoStartTime = !task.startTime && !!task.endTime;
-  
+
+    
+
     return hasDateWithoutSpecificTime || hasDeadlineButNoStartTime;
   }
   
@@ -262,16 +264,22 @@ import {
   }
   
   export function isDateOnlyWithoutTime(date: Date | null) {
-    if (!date)
-      return false;
-  
-    const hasZeroHours = date.getUTCHours() === 0;
-    const hasZeroMinutes = date.getUTCMinutes() === 0;
-    const hasZeroSeconds = date.getUTCSeconds() === 0;
-    const hasZeroMilliseconds = date.getUTCMilliseconds() === 0;
-  
-    const isDateOnly = hasZeroHours && hasZeroMinutes && hasZeroSeconds && hasZeroMilliseconds;
-    return isDateOnly;
+    if (!date) return false;
+
+    // Allow times within +/- 1 hour of midnight to count as 'date-only'
+    const hour = date.getUTCHours();
+    const minute = date.getUTCMinutes();
+    const second = date.getUTCSeconds();
+    const ms = date.getUTCMilliseconds();
+
+    const isNearMidnight = (
+      (hour === 0 || hour === 23 || hour === 1) &&
+      minute === 0 &&
+      second === 0 &&
+      ms === 0
+    );
+
+    return isNearMidnight;
   }
   
   function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {

@@ -310,9 +310,39 @@ async function testConflictingDeadlines() {
   });
 }
 
+// Test: Smart scheduling disables when both date and time are set
+async function testNoSmartSchedulingWithDateAndTime() {
+  console.log('\n\n🧪 Test: No smart scheduling with explicit date+time');
+  const explicitDate = new Date();
+  explicitDate.setDate(explicitDate.getDate() + 2); // Two days from now
+  explicitDate.setHours(15, 30, 0, 0); // 3:30 PM
+
+  const { data: task } = await apiCall('POST', '/tasks', {
+    title: 'Explicit Date+Time Task',
+    userId: USER_ID,
+    profileId: PROFILE_ID,
+    estimatedDuration: 60,
+    priority: 3,
+    tag: 'admin',
+    isAutoSchedule: true, // Even if true, should not reschedule
+    startTime: explicitDate.toISOString(),
+    // No endTime or deadline
+  });
+  if (!task) throw new Error('Task creation failed');
+
+  const scheduledTime = new Date(task.startTime);
+  console.log(`Task scheduled at: ${scheduledTime.toLocaleString()}`);
+  if (scheduledTime.getTime() !== explicitDate.getTime()) {
+    throw new Error('❌ Task was rescheduled by smart scheduling!');
+  } else {
+    console.log('✅ Task remained at explicit date+time as expected.');
+  }
+}
+
 // Main test runner
 async function runAllTests() {
   try {
+    await testNoSmartSchedulingWithDateAndTime();
     console.log('🚀 Starting Date Range Scheduling Tests\n');
     
     await testDateRangeScheduling();
