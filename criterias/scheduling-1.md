@@ -97,3 +97,12 @@ To confirm the criteria is met:
 5. **Output**: Task scheduled at optimal 9 AM instead of midnight ✓
 
 The API successfully implements smart scheduling! 🎯
+
+
+
+
+5 emails every 2 weeks, to users who have not used smart scheduling in the last 2 weeks
+5 sms every 2 weeks, to users who have not used smart scheduling in the last 2 weeks
+
+email_1= explaining how it works from turbo match to rating the  session
+email_2= 

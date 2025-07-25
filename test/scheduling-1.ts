@@ -1,7 +1,7 @@
 // test-smart-scheduling.ts
 // This script demonstrates how to verify the smart scheduling criteria
 
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = 'https://test-api-7nej.onrender.com/api';
 const USER_ID = 'test-user-123';
 const PROFILE_ID = 'test-profile-123';
 

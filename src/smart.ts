@@ -265,21 +265,14 @@ import {
   
   export function isDateOnlyWithoutTime(date: Date | null) {
     if (!date) return false;
-
-    // Allow times within +/- 1 hour of midnight to count as 'date-only'
-    const hour = date.getUTCHours();
-    const minute = date.getUTCMinutes();
-    const second = date.getUTCSeconds();
-    const ms = date.getUTCMilliseconds();
-
-    const isNearMidnight = (
-      (hour === 0 || hour === 23 || hour === 1) &&
-      minute === 0 &&
-      second === 0 &&
-      ms === 0
-    );
-
-    return isNearMidnight;
+  
+    // Use local time instead of UTC
+    const hour = date.getHours();
+    const minute = date.getMinutes();
+    const second = date.getSeconds();
+  
+    // More flexible check for midnight-ish times
+    return hour === 0 && minute === 0 && second === 0;
   }
   
   function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {
