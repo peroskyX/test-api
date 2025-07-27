@@ -63,16 +63,19 @@ export class SmartSchedulingService {
    */
   async findOptimalTimeForTask(
     task: TaskSelect,
-    userId: string
+    userId: string,
+    daysToLookAhead: number = 0
   ): Promise<{ startTime: Date; endTime: Date } | null> {
     try {
+      // First try with current target date
       const context = await this.buildSchedulingContext(task, userId);
       console.log('[findOptimalTimeForTask] Built context:', {
         schedulingStrategy: context.schedulingStrategy,
         targetDate: context.targetDate,
         hasEnergyForecast: !!context.todayEnergyForecast,
         energyForecastLength: context.todayEnergyForecast?.length || 0,
-        historicalPatternsLength: context.historicalPatterns?.length || 0
+        historicalPatternsLength: context.historicalPatterns?.length || 0,
+        daysToLookAhead
       });
       
       const energyRequirements = SmartScheduling.getEnergyRequirementsForTask(task.tag);
@@ -99,7 +102,36 @@ export class SmartSchedulingService {
       }
       
       if (availableSlots.length === 0) {
-        console.log('[findOptimalTimeForTask] No available slots found');
+        console.log('[findOptimalTimeForTask] No available slots found on current day');
+        
+        // Check if we should look ahead based on deadline constraints
+        const nextDay = task.startTime ? addDays(task.startTime, 1) : addDays(new Date(), 1);
+        const nextDayStart = startOfDay(nextDay);
+        
+        // Don't look ahead if there's a deadline and the next day would exceed it
+        if (task.endTime && nextDayStart >= task.endTime) {
+          console.log('[findOptimalTimeForTask] Cannot look ahead: would exceed task deadline', {
+            deadline: task.endTime,
+            nextDay: nextDayStart
+          });
+          return null;
+        }
+        
+        // If no slots found and we haven't looked too far ahead, try the next day
+        if (daysToLookAhead < 7) { // Limit to 7 days of looking ahead to prevent excessive recursion
+          console.log(`[findOptimalTimeForTask] Looking ahead to day ${daysToLookAhead + 1}`);
+          
+          // Create a modified task with target date shifted to the next day
+          const nextDayTask = { ...task };
+          
+          // Set the start time to the next day
+          nextDayTask.startTime = nextDayStart;
+          
+          // Recursively call this function with the incremented daysToLookAhead counter
+          return this.findOptimalTimeForTask(nextDayTask, userId, daysToLookAhead + 1);
+        }
+        
+        console.log('[findOptimalTimeForTask] Reached maximum days to look ahead, no slots found');
         return null;
       }
       

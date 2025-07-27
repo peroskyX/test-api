@@ -1,5 +1,6 @@
 // src/models/index.ts
 import mongoose, { Schema, Document } from 'mongoose';
+import { User, IUser } from './userModel';
 
 // Task Model
 export interface ITask extends Document {
@@ -127,3 +128,4 @@ export const Task = mongoose.model<ITask>('Task', TaskSchema);
 export const Energy = mongoose.model<IEnergy>('Energy', EnergySchema);
 export const ScheduleItem = mongoose.model<IScheduleItem>('ScheduleItem', ScheduleItemSchema);
 export const HistoricalEnergyPattern = mongoose.model<IHistoricalEnergyPattern>('HistoricalEnergyPattern', HistoricalEnergyPatternSchema);
+export { User, IUser };

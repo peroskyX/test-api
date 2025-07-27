@@ -3,14 +3,22 @@
 import { Router, Request, Response } from 'express';
 import { ScheduleItem, Task } from '../models';
 import { SmartSchedulingService } from '../services/smartSchedulingService';
+import { protect } from '../middleware/authMiddleware';
 
 export const scheduleRoutes: Router = Router();
 const schedulingService = new SmartSchedulingService();
 
+// Apply protection middleware to all schedule routes
+scheduleRoutes.use(protect);
+
 // Add a schedule item (event)
 scheduleRoutes.post('/', async (req: Request, res: Response) => {
   try {
-    const scheduleItem = new ScheduleItem(req.body);
+    // Ensure the item belongs to the authenticated user
+    const scheduleItem = new ScheduleItem({
+      ...req.body,
+      userId: req.userId
+    });
     await scheduleItem.save();
     
     // If it's an event, reschedule affected tasks
@@ -27,10 +35,12 @@ scheduleRoutes.post('/', async (req: Request, res: Response) => {
 // Get schedule items
 scheduleRoutes.get('/', async (req: Request, res: Response) => {
   try {
-    const { userId, type, startDate, endDate } = req.query;
-    const query: any = {};
+    const { type, startDate, endDate } = req.query;
+    const query: any = {
+      // Always filter by the authenticated user's ID
+      userId: req.userId
+    };
     
-    if (userId) query.userId = userId;
     if (type) query.type = type;
     if (startDate || endDate) {
       query.startTime = {};
@@ -48,7 +58,11 @@ scheduleRoutes.get('/', async (req: Request, res: Response) => {
 // Delete a schedule item
 scheduleRoutes.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const item = await ScheduleItem.findByIdAndDelete(req.params.id);
+    // Only allow deletion of the user's own items
+    const item = await ScheduleItem.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.userId
+    });
     if (!item) {
       return res.status(404).json({ error: 'Schedule item not found' });
     }

@@ -2,14 +2,22 @@
 import { Router, Request, Response } from 'express';
 import { Task, ScheduleItem } from '../models';
 import { SmartSchedulingService } from '../services/smartSchedulingService';
+import { protect } from '../middleware/authMiddleware';
 
 export const taskRoutes: Router = Router();
 const schedulingService = new SmartSchedulingService();
 
+// Apply protection middleware to all task routes
+taskRoutes.use(protect);
+
 // Create a new task
 taskRoutes.post('/', async (req: Request, res: Response) => {
   try {
-    const taskData = req.body;
+    // Ensure the task belongs to the authenticated user
+    const taskData = {
+      ...req.body,
+      userId: req.userId
+    };
     const task = await schedulingService.createTaskWithSmartScheduling(taskData);
     res.status(201).json(task);
   } catch (error) {
@@ -20,10 +28,11 @@ taskRoutes.post('/', async (req: Request, res: Response) => {
 // Get all tasks for a user
 taskRoutes.get('/', async (req: Request, res: Response) => {
   try {
-    const { userId, status, startDate, endDate } = req.query;
-    const query: any = {};
-    
-    if (userId) query.userId = userId;
+    const { status, startDate, endDate } = req.query;
+    const query: any = {
+      // Always filter by the authenticated user's ID
+      userId: req.userId
+    };
     if (status) query.status = status;
     if (startDate || endDate) {
       query.startTime = {};
@@ -41,7 +50,11 @@ taskRoutes.get('/', async (req: Request, res: Response) => {
 // Get a specific task
 taskRoutes.get('/:id', async (req: Request, res: Response) => {
   try {
-    const task = await Task.findById(req.params.id);
+    // Only allow access to the user's own tasks
+    const task = await Task.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
@@ -54,7 +67,19 @@ taskRoutes.get('/:id', async (req: Request, res: Response) => {
 // Update a task
 taskRoutes.put('/:id', async (req: Request, res: Response) => {
   try {
+    // First verify this is the user's task
+    const existingTask = await Task.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
+    
+    if (!existingTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
     const updates = req.body;
+    // Prevent changing the userId
+    delete updates.userId;
     const task = await schedulingService.updateTaskWithRescheduling(req.params.id, updates);
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
@@ -68,7 +93,11 @@ taskRoutes.put('/:id', async (req: Request, res: Response) => {
 // Delete a task
 taskRoutes.delete('/:id', async (req: Request, res: Response) => {
   try {
-    const task = await Task.findByIdAndDelete(req.params.id);
+    // Only allow deletion of the user's own tasks
+    const task = await Task.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.userId
+    });
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
@@ -83,7 +112,11 @@ taskRoutes.delete('/:id', async (req: Request, res: Response) => {
 // Manually trigger rescheduling
 taskRoutes.post('/:id/reschedule', async (req: Request, res: Response) => {
   try {
-    const task = await Task.findById(req.params.id);
+    // Only allow rescheduling of the user's own tasks
+    const task = await Task.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
     if (!task) {
       return res.status(404).json({ error: 'Task not found' });
     }
