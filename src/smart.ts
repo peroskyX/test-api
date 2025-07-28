@@ -296,11 +296,31 @@ export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date) return false;
   
   console.log("task date date", date);
-  const lagosTime = dayjs(date).tz("Africa/Lagos");
-  console.log("lagosTime", lagosTime);
   
-  return lagosTime.format("HH:mm:ss") === "00:00:00";
+  // Convert to Lagos time manually
+  // Lagos is UTC+1 (WAT - West Africa Time)
+  const lagosTime = new Date(date.getTime() + (1 * 60 * 60 * 1000)); // Add 1 hour
+  
+  console.log("lagosTime", lagosTime);
+  console.log("hours", lagosTime.getUTCHours());
+  console.log("minutes", lagosTime.getUTCMinutes()); 
+  console.log("seconds", lagosTime.getUTCSeconds());
+  
+  // Check if it's midnight in Lagos time
+  return lagosTime.getUTCHours() === 0 && 
+         lagosTime.getUTCMinutes() === 0 && 
+         lagosTime.getUTCSeconds() === 0;
 }
+
+// export function isDateOnlyWithoutTime(date: Date | null) {
+//   if (!date) return false;
+  
+//   console.log("task date date", date);
+//   const lagosTime = dayjs(date).tz("Africa/Lagos");
+//   console.log("lagosTime", lagosTime);
+  
+//   return lagosTime.format("HH:mm:ss") === "00:00:00";
+// }
 
 function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {
   const significantPriorityThreshold = 2;
