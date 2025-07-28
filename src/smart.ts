@@ -285,6 +285,7 @@ export function isDateOnlyWithoutTime(date: Date | null) {
     return false;
 
   const localDate = convertToLocalTime(date, "africa/lagos");
+  console.log("localDate", localDate);
 
   const hasZeroHours = localDate.getHours() === 0;
   console.log("hasZeroHours", hasZeroHours);
@@ -293,6 +294,7 @@ export function isDateOnlyWithoutTime(date: Date | null) {
   const hasZeroSeconds = localDate.getSeconds() === 0;
   console.log("hasZeroSeconds", hasZeroSeconds);
   const hasZeroMilliseconds = localDate.getMilliseconds() === 0;
+  console.log("hasZeroMilliseconds", hasZeroMilliseconds);
 
   const isDateOnly = hasZeroHours && hasZeroMinutes && hasZeroSeconds && hasZeroMilliseconds;
   return isDateOnly;
