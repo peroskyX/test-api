@@ -283,9 +283,10 @@ export function convertToLocalTime(utcTime, timeZone) {
 export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date)
     return false;
-
+  
   const localDate = convertToLocalTime(date, "africa/lagos");
   console.log("localDate", localDate);
+  console.log("localDate", new Date());
 
   const hasZeroHours = localDate.getHours() === 0;
   console.log("hasZeroHours", hasZeroHours);

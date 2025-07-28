@@ -49,6 +49,7 @@ mongoose.connect(MONGODB_URI)
     console.log('Connected to MongoDB');
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT} live`);
+      console.log('Current date:', new Date());
     });
   })
   .catch((error) => {
