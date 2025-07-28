@@ -8,9 +8,11 @@ import {
 } from "date-fns";
 import { tzDate, format } from "@formkit/tempo";
 import * as utc from 'dayjs/plugin/utc' 
+import * as timezone from 'dayjs/plugin/timezone';
 import * as dayjs from 'dayjs'
 dayjs().format()
 dayjs.extend(utc)
+dayjs.extend(timezone);
 import { flow } from "lodash";
 
 export type TAG = "deep" | "creative" | "admin" | "personal";
@@ -285,30 +287,19 @@ export function isStartTimeSet(task: TaskSelect) {
 //   return toZonedTime(utcTime, timeZone);
 // }
 
-/**
- * Converts a UTC time to a Date object representing the same instant in the given timezone.
- * @param {string|Date} utcTime - UTC time (e.g., "2025-07-28T14:00:00Z" or Date object)
- * @param {string} timeZone - IANA timezone string (e.g., "America/New_York")
- * @returns {Date} Date object representing the time in the target timezone
- */
-// export function convertToLocalTime(utcTime, timeZone) {
-//   // Use tzDate to get the time in the target timezone
-//   return tzDate(utcTime, timeZone);
-// }
 export function convertToLocalTime(utcTime: string | Date, timeZone: string) {
   // Format the UTC time to show the local time in the specified timezone
   return format(utcTime, "YYYY-MM-DD HH:mm:ss", timeZone);
 }
 
 export function isDateOnlyWithoutTime(date: Date | null) {
-  if (!date)
-    return false;
-  console.log("date", date);
-  dayjs.extend(utc)
-  const localDate = dayjs(date).utc().local()
-  // Check if the time part is exactly midnight (00:00:00)
-  return localDate.format("HH:mm:ss") === "00:00:00";
-
+  if (!date) return false;
+  
+  console.log("task date date", date);
+  const lagosTime = dayjs(date).tz("Africa/Lagos");
+  console.log("lagosTime", lagosTime);
+  
+  return lagosTime.format("HH:mm:ss") === "00:00:00";
 }
 
 function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {
