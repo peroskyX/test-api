@@ -6,6 +6,7 @@ import {
   setHours,
   setMinutes,
 } from "date-fns";
+import { tzDate } from "@formkit/tempo";
 import { flow } from "lodash";
 
 export type TAG = "deep" | "creative" | "admin" | "personal";
@@ -267,14 +268,29 @@ export function isStartTimeSet(task: TaskSelect) {
   return task.startTime !== null;
 }
 
+
+/**
+ * Converts a UTC time to a Date object representing the same instant in the given timezone.
+ * @param {string|Date} utcTime - UTC time (e.g., "2025-07-28T14:00:00Z" or Date object)
+ * @param {string} timeZone - IANA timezone string (e.g., "America/New_York")
+ * @returns {Date} Date object representing the time in the target timezone
+ */
+export function convertToLocalTime(utcTime, timeZone) {
+  // Use tzDate to get the time in the target timezone
+  return tzDate(utcTime, timeZone);
+}
+
 export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date)
     return false;
 
-  const hasZeroHours = date.getUTCHours() === 0;
-  const hasZeroMinutes = date.getUTCMinutes() === 0;
-  const hasZeroSeconds = date.getUTCSeconds() === 0;
-  const hasZeroMilliseconds = date.getUTCMilliseconds() === 0;
+  const localDate = convertToLocalTime(date, "africa/lagos");
+
+
+  const hasZeroHours = localDate.getHours() === 0;
+  const hasZeroMinutes = localDate.getMinutes() === 0;
+  const hasZeroSeconds = localDate.getSeconds() === 0;
+  const hasZeroMilliseconds = localDate.getMilliseconds() === 0;
 
   const isDateOnly = hasZeroHours && hasZeroMinutes && hasZeroSeconds && hasZeroMilliseconds;
   return isDateOnly;

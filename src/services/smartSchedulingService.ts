@@ -49,6 +49,12 @@ export class SmartSchedulingService {
     if (task.startTime && task.endTime) {
       await this.addTaskToSchedule(task);
     }
+
+    if (task.startTime && !task.endTime && task.estimatedDuration) {
+      const claculatedDuration = addMinutes(task.startTime, task.estimatedDuration);
+      task.endTime = claculatedDuration;
+      await this.addTaskToSchedule(task);
+    }
     
     console.log('[SmartSchedulingService] Task created with final time:', {
       startTime: task.startTime,
@@ -383,6 +389,7 @@ export class SmartSchedulingService {
       title: task.title,
       startTime: task.startTime,
       endTime: task.endTime,
+
       type: 'task',
       taskId: task.id || task._id?.toString()
     });
