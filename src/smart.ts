@@ -286,7 +286,7 @@ export function isDateOnlyWithoutTime(date: Date | null) {
   
   const localDate = convertToLocalTime(date, "africa/lagos");
   console.log("localDate", localDate);
-  console.log("localDate", new Date());
+  console.log("currentDate", new Date());
 
   const hasZeroHours = localDate.getHours() === 0;
   console.log("hasZeroHours", hasZeroHours);
