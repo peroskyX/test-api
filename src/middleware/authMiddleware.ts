@@ -25,31 +25,38 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
     try {
       // Get token from header
       token = req.headers.authorization.split(' ')[1];
-
-      // Verify token
-      const decoded: any = jwt.verify(token, JWT_SECRET);
-
-      // Get user from token
-      const user = await User.findById(decoded.id).select('-hashedPassword -salt');
       
-      if (!user) {
-        res.status(401).json({ error: 'Not authorized, user not found' });
+      // Verify token
+      try {
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+
+        // Get user from token
+        const user = await User.findById(decoded.id).select('-hashedPassword -salt');
+        
+        if (!user) {
+          console.log('User not found with id:', decoded.id);
+          res.status(401).json({ error: 'Not authorized, user not found' });
+          return;
+        }
+
+        
+        // Set user in request object
+        req.user = user;
+        req.userId = user._id.toString();
+        
+        next();
+      } catch (jwtError) {
+        console.error('JWT verification failed:', jwtError);
+        res.status(401).json({ error: 'Not authorized, token invalid' });
         return;
       }
-
-      // Set user in request object
-      req.user = user;
-      req.userId = user._id.toString();
-      
-      next();
     } catch (error) {
       console.error('Authentication error:', error);
-      res.status(401).json({ error: 'Not authorized, token failed' });
+      res.status(401).json({ error: 'Not authorized, token processing failed' });
       return;
     }
-  }
-
-  if (!token) {
+  } else {
+    console.log('No Bearer token found in Authorization header');
     res.status(401).json({ error: 'Not authorized, no token provided' });
     return;
   }

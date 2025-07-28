@@ -2,6 +2,7 @@
 import { Router, Request, Response } from 'express';
 import { User } from '../models';
 import { generateToken } from '../middleware/authMiddleware';
+import { protect } from '../middleware/authMiddleware';
 
 export const authRoutes: Router = Router();
 
@@ -95,7 +96,7 @@ authRoutes.post('/login', async (req: Request, res: Response) => {
 // @desc    Get user profile
 // @route   GET /api/auth/profile
 // @access  Private
-authRoutes.get('/profile', async (req: Request, res: Response) => {
+authRoutes.get('/profile', protect, async (req: Request, res: Response) => {
   try {
     // User should be attached to request by the protect middleware
     if (!req.user) {

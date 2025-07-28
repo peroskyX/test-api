@@ -105,7 +105,10 @@ export class SmartSchedulingService {
         console.log('[findOptimalTimeForTask] No available slots found on current day');
         
         // Check if we should look ahead based on deadline constraints
-        const nextDay = task.startTime ? addDays(task.startTime, 1) : addDays(new Date(), 1);
+        const nextDay = task.startTime ? addDays(task.startTime, 3) : addDays(new Date(), 3);
+        console.log('[findOptimalTimeForTask] Next day:', nextDay);
+        console.log('[findOptimalTimeForTask] Task deadline:', task.endTime);
+        console.log('[findOptimalTimeForTask] Next day start:', task.startTime);
         const nextDayStart = startOfDay(nextDay);
         
         // Don't look ahead if there's a deadline and the next day would exceed it
@@ -126,6 +129,7 @@ export class SmartSchedulingService {
           
           // Set the start time to the next day
           nextDayTask.startTime = nextDayStart;
+          console.log('[findOptimalTimeForTask] Next day task:', nextDayTask);
           
           // Recursively call this function with the incremented daysToLookAhead counter
           return this.findOptimalTimeForTask(nextDayTask, userId, daysToLookAhead + 1);
