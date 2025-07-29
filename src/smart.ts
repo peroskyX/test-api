@@ -5,8 +5,8 @@ import {
   isSameDay,
   setHours,
   setMinutes,
+  startOfDay,
 } from "date-fns";
-import { tzDate, format } from "@formkit/tempo";
 import * as utc from 'dayjs/plugin/utc' 
 import * as timezone from 'dayjs/plugin/timezone';
 import * as dayjs from 'dayjs'
@@ -215,7 +215,17 @@ function hasSignificantChanges(task: TaskSelect, changes: Partial<TaskBody>) {
 export function determineTargetDate(task: TaskSelect): Date | null {
   const hasStartTimeWithoutSpecificTime = task.startTime && isDateOnlyWithoutTime(task.startTime);
   if (hasStartTimeWithoutSpecificTime) {
-    return task.startTime;
+    dayjs(task.startTime).tz("Africa/Lagos");
+    const localStartTime = dayjs(task.startTime).tz("Africa/Lagos").toDate();
+    console.log("localStartTime", localStartTime);
+    return localStartTime;
+  }
+
+  const onlYhasDeadline = task.endTime;
+  if ( onlYhasDeadline && !task.startTime) {
+    // NEW: When only deadline is provided, use today as the target date
+    const today = startOfDay(new Date());
+    return today;
   }
 
   const hasDeadline = task.endTime;
@@ -275,52 +285,13 @@ export function isStartTimeSet(task: TaskSelect) {
 }
 
 
-/**
- * Converts a UTC time to a Date object representing the same instant in the given timezone.
- * @param {string|Date} utcTime - UTC time (e.g., "2025-07-28T14:00:00Z" or Date object)
- * @param {string} timeZone - IANA timezone string (e.g., "America/New_York")
- * @returns {Date} Date object representing the time in the target timezone
- */
-// export function convertToLocalTimeDateFns(utcTime, timeZone) {
-//   // toZonedTime returns a Date object that, when its getters are called,
-//   // will reflect the time in the specified timeZone.
-//   return toZonedTime(utcTime, timeZone);
-// }
-
-export function convertToLocalTime(utcTime: string | Date, timeZone: string) {
-  // Format the UTC time to show the local time in the specified timezone
-  return format(utcTime, "YYYY-MM-DD HH:mm:ss", timeZone);
-}
-
 export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date) return false;
   
   console.log("task date date", date);
-  
-  // Convert to Lagos time manually
-  // Lagos is UTC+1 (WAT - West Africa Time)
-  const lagosTime = new Date(date.getTime() + (1 * 60 * 60 * 1000)); // Add 1 hour
-  
-  console.log("lagosTime", lagosTime);
-  console.log("hours", lagosTime.getUTCHours());
-  console.log("minutes", lagosTime.getUTCMinutes()); 
-  console.log("seconds", lagosTime.getUTCSeconds());
-  
-  // Check if it's midnight in Lagos time
-  return lagosTime.getUTCHours() === 0 && 
-         lagosTime.getUTCMinutes() === 0 && 
-         lagosTime.getUTCSeconds() === 0;
+  const localTime = dayjs(date).tz("Africa/Lagos");
+  return localTime.format("HH:mm:ss") === "00:00:00";
 }
-
-// export function isDateOnlyWithoutTime(date: Date | null) {
-//   if (!date) return false;
-  
-//   console.log("task date date", date);
-//   const lagosTime = dayjs(date).tz("Africa/Lagos");
-//   console.log("lagosTime", lagosTime);
-  
-//   return lagosTime.format("HH:mm:ss") === "00:00:00";
-// }
 
 function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {
   const significantPriorityThreshold = 2;
@@ -380,6 +351,7 @@ export function getAvailableSlotsForContext(
   context: SchedulingContext,
   taskDuration: number,
   energyRequirements: { min: number; max: number },
+  deadline?: Date | null  
 ) {
   if (shouldUseTodaySlots(context)) {
     const todaySlots = analyzeAvailableSlotsToday({

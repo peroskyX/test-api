@@ -3,6 +3,7 @@ import { addDays, startOfDay, setHours, setMinutes, addMinutes } from 'date-fns'
 import { Task, Energy, ScheduleItem, HistoricalEnergyPattern, ITask, IEnergy, IScheduleItem, IHistoricalEnergyPattern } from '../models';
 import * as SmartScheduling from '../smart';
 import { TAG, TaskSelect, EnergySelect, ScheduleItem as SmartScheduleItem, SchedulingContext, TaskBody } from '../smart';
+import dayjs = require('dayjs');
 
 export class SmartSchedulingService {
   /**
@@ -111,7 +112,7 @@ export class SmartSchedulingService {
         console.log('[findOptimalTimeForTask] No available slots found on current day');
         
         // Check if we should look ahead based on deadline constraints
-        const nextDay = task.startTime ? addDays(task.startTime, 3) : addDays(new Date(), 3);
+        const nextDay = task.startTime ? addDays(task.startTime, 1) : addDays(new Date(), 1);
         console.log('[findOptimalTimeForTask] Next day:', nextDay);
         console.log('[findOptimalTimeForTask] Task deadline:', task.endTime);
         console.log('[findOptimalTimeForTask] Next day start:', task.startTime);
@@ -178,7 +179,6 @@ export class SmartSchedulingService {
   private async buildSchedulingContext(task: TaskSelect, userId: string): Promise<SchedulingContext> {
     const targetDate = SmartScheduling.determineTargetDate(task);
     const strategy = SmartScheduling.determineSchedulingStrategy(targetDate);
-    
     console.log('[buildSchedulingContext] Strategy:', {
       targetDate,
       strategy: strategy.strategy,
