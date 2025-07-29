@@ -151,11 +151,6 @@ export class SmartSchedulingService {
       const sortedSlots = availableSlots.sort((a, b) => b.energyLevel - a.energyLevel);
 
       
-      // // Sort slots by energy (desc), then by earliest time (asc)
-      // const sortedSlots = availableSlots.sort((a, b) => {
-      //   if (b.energyLevel !== a.energyLevel) return b.energyLevel - a.energyLevel;
-      //   return a.startTime.getTime() - b.startTime.getTime();
-      // });
       const bestSlot = sortedSlots[0];
       
       const startTime = bestSlot.startTime;
