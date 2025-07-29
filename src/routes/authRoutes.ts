@@ -2,6 +2,7 @@
 import { Router, Request, Response } from 'express';
 import { User } from '../models';
 import { generateToken } from '../middleware/authMiddleware';
+import { SmartSchedulingService } from '../services/smartSchedulingService';
 import { protect } from '../middleware/authMiddleware';
 
 export const authRoutes: Router = Router();
@@ -168,6 +169,11 @@ authRoutes.put('/sleep-schedule', protect, async (req: Request, res: Response) =
         chronotype: user.chronotype,
         daysToGenerate: 1 // Seed a week of data
       });
+
+      console.log('[updateHistoricalPatterns] updating historical patterns.................', req.userId, user._id);
+      // Update historical patterns based on the new data
+      const schedulingService = new SmartSchedulingService();
+      await schedulingService.updateHistoricalPatterns(req.userId!);
 
       res.json({
         sleepSchedule: user.sleepSchedule,
