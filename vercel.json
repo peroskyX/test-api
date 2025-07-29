@@ -1,19 +1,27 @@
 {
-  "version": 2,
-  "name": "smart-scheduling-api",
-  "builds": [
-    {
-      "src": "dist/server.js",
-      "use": "@vercel/node"
+    "version": 2,
+    "name": "smart-scheduling-api",
+    "builds": [
+      {
+        "src": "src/server.ts",
+        "use": "@vercel/node",
+        "config": {
+          "includeFiles": ["src/**"]
+        }
+      }
+    ],
+    "routes": [
+      {
+        "src": "/(.*)",
+        "dest": "src/server.js"
+      }
+    ],
+    "env": {
+      "NODE_ENV": "production"
+    },
+    "functions": {
+      "src/server.ts": {
+        "maxDuration": 30
+      }
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "dist/server.js"
-    }
-  ],
-  "env": {
-    "NODE_ENV": "production"
   }
-}
