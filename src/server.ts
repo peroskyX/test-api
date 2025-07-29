@@ -12,8 +12,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/smart-scheduling';
 
-
-// please remove the credentials: true from the cors options
 // Middleware
 app.use(cors({
   origin: '*',
@@ -22,6 +20,20 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Root route handler
+app.get('/', (_req, res) => {
+  res.json({
+    message: 'Smart Scheduling API',
+    version: '1.0.0',
+    status: 'running',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      health: '/health',
+      api: '/api'
+    }
+  });
+});
 
 // Health check endpoint
 app.get('/health', (_req, res) => {

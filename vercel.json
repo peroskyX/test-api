@@ -3,7 +3,7 @@
     "name": "smart-scheduling-api",
     "builds": [
       {
-        "src": "src/server.ts",
+        "src": "dist/server.ts",
         "use": "@vercel/node",
         "config": {
           "includeFiles": ["src/**"]
@@ -25,4 +25,3 @@
       }
     }
   }
-  
