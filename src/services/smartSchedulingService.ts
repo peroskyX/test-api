@@ -247,7 +247,7 @@ export class SmartSchedulingService {
       const futureLimit = addDays(now, 30);
       query.startTime = { $gte: now, $lt: futureLimit };
     }
-    console.log("query", query);
+    console.log(" this are the query", query);
     const items = await ScheduleItem.find(query).sort({ startTime: 1 });
     console.log("items", items);
     return items.map(item => ({
