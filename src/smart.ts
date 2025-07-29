@@ -7,6 +7,8 @@ import {
   setMinutes,
   startOfDay,
 } from "date-fns";
+
+import { getLocalStartOfDay, isLocalDateOnly, getLocalNow, isSameLocalDay } from './utils/timezone';
 import * as utc from 'dayjs/plugin/utc' 
 import * as timezone from 'dayjs/plugin/timezone';
 import * as dayjs from 'dayjs'
@@ -212,18 +214,18 @@ function hasSignificantChanges(task: TaskSelect, changes: Partial<TaskBody>) {
 }
 
 export function determineTargetDate(task: TaskSelect): Date | null {
-  const hasStartTimeWithoutSpecificTime = task.startTime && isDateOnlyWithoutTime(task.startTime);
+  const hasStartTimeWithoutSpecificTime = task.startTime && isLocalDateOnly(task.startTime);
   if (hasStartTimeWithoutSpecificTime) {
-    dayjs(task.startTime).tz("Africa/Lagos");
-    const localStartTime = dayjs(task.startTime).tz("Africa/Lagos").toDate();
-    console.log("localStartTime", localStartTime);
-    return localStartTime;
+    // Get start of day in local timezone
+    const localStartOfDay = getLocalStartOfDay(task.startTime);
+    console.log("localStartTime (start of day):", localStartOfDay);
+    return localStartOfDay;
   }
 
-  const onlYhasDeadline = task.endTime;
-  if ( onlYhasDeadline && !task.startTime) {
-    // NEW: When only deadline is provided, use today as the target date
-    const today = startOfDay(new Date());
+  const onlyHasDeadline = task.endTime;
+  if (onlyHasDeadline && !task.startTime) {
+    // When only deadline is provided, use today in local timezone
+    const today = getLocalStartOfDay(getLocalNow());
     return today;
   }
 
@@ -246,7 +248,7 @@ export function determineSchedulingStrategy(targetDate: Date | null) {
     };
   }
 
-  const isTargetDateToday = isSameDay(targetDate, new Date());
+  const isTargetDateToday = isSameLocalDay(targetDate, getLocalNow());
   const strategy = isTargetDateToday ? ("today" as const) : ("future" as const);
 
   return {
@@ -286,11 +288,7 @@ export function isStartTimeSet(task: TaskSelect) {
 
 export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date) return false;
-  
-  console.log("task date date", date);
-  const localTime = dayjs(date).tz("Africa/Lagos");
-  console.log("localTime", localTime);
-  return localTime.format("HH:mm:ss") === "00:00:00";
+  return isLocalDateOnly(date);
 }
 
 function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {
