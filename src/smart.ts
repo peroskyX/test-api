@@ -289,6 +289,7 @@ export function isDateOnlyWithoutTime(date: Date | null) {
   
   console.log("task date date", date);
   const localTime = dayjs(date).tz("Africa/Lagos");
+  console.log("localTime", localTime);
   return localTime.format("HH:mm:ss") === "00:00:00";
 }
 
