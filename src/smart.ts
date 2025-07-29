@@ -544,11 +544,15 @@ function mapPatternToSlot(targetDate: Date) {
   return (pattern: HistoricalEnergyPattern): EnergySlot => {
     const slotDurationMinutes = 60;
 
-    const slotStartTime = setHours(setMinutes(targetDate, 0), pattern.hour);
-    const slotEndTime = addMinutes(slotStartTime, slotDurationMinutes);
+    console.log("targetDate", targetDate);
 
-    slotStartTime.setSeconds(0, 0);
-    slotEndTime.setSeconds(0, 0);
+    const slotHour = setMinutes(targetDate, 0);
+    console.log("slotHour", slotHour);
+    
+    const slotStartTime = setHours(slotHour, pattern.hour);
+    console.log("slotStartTime", slotStartTime);
+    const slotEndTime = addMinutes(slotStartTime, slotDurationMinutes);
+    console.log("slotEndTime", slotEndTime);
 
     return {
       startTime: slotStartTime,
