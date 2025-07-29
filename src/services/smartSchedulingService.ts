@@ -236,7 +236,7 @@ export class SmartSchedulingService {
     
     if (targetDate) {
       // Get items for the specific day and a few days around it
-      const startOfTargetDay = startOfDay(targetDate);
+      const startOfTargetDay = targetDate
       console.log("startOfTargetDay", startOfTargetDay);
       const endOfSearchWindow = addDays(startOfTargetDay, 7); // Look ahead 7 days
       console.log("endOfSearchWindow", endOfSearchWindow);
