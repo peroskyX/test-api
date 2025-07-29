@@ -13,7 +13,7 @@
     "routes": [
       {
         "src": "/(.*)",
-        "dest": "src/server.js"
+        "dest": "dist/server.js"
       }
     ],
     "env": {
@@ -25,3 +25,4 @@
       }
     }
   }
+  
