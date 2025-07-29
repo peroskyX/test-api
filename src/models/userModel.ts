@@ -2,6 +2,11 @@
 import mongoose, { Schema, Document } from 'mongoose';
 import * as crypto from 'crypto';
 
+export interface ISleepSchedule {
+  bedtime: number;    // Hour in 24-hour format (0-23)
+  wakeHour: number;   // Hour in 24-hour format (0-23)
+}
+
 export interface IUser extends Document {
   username: string;
   email: string;
@@ -9,11 +14,28 @@ export interface IUser extends Document {
   salt: string;
   firstName?: string;
   lastName?: string;
+  sleepSchedule?: ISleepSchedule;  // New field
+  chronotype?: 'morning' | 'evening' | 'neutral';  // Optional chronotype
   createdAt: Date;
   updatedAt: Date;
   setPassword: (password: string) => void;
   validatePassword: (password: string) => boolean;
 }
+
+const SleepScheduleSchema = new Schema({
+  bedtime: { 
+    type: Number, 
+    required: true,
+    min: 0,
+    max: 23
+  },
+  wakeHour: { 
+    type: Number, 
+    required: true,
+    min: 0,
+    max: 23
+  }
+}, { _id: false });
 
 const UserSchema = new Schema<IUser>({
   username: { 
@@ -44,13 +66,19 @@ const UserSchema = new Schema<IUser>({
   },
   lastName: { 
     type: String 
+  },
+  sleepSchedule: {
+    type: SleepScheduleSchema,
+    required: false
+  },
+  chronotype: {
+    type: String,
+    enum: ['morning', 'evening', 'neutral'],
+    default: 'neutral'
   }
 }, { 
   timestamps: true 
 });
-
-// Indexes are already defined in the schema fields (unique: true creates indexes)
-// No need for additional index definitions
 
 // Method to set password
 UserSchema.methods.setPassword = function(password: string) {

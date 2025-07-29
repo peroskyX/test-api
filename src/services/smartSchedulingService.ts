@@ -1,6 +1,7 @@
 // src/services/smartSchedulingService.ts - FIXED VERSION
 import { addDays, startOfDay, setHours, setMinutes, addMinutes } from 'date-fns';
-import { Task, Energy, ScheduleItem, HistoricalEnergyPattern, ITask, IEnergy, IScheduleItem, IHistoricalEnergyPattern } from '../models';
+import { generateEnergyPatternsFromSleep } from '../utils/sleepEnergyPatterns';
+import { Task, Energy, ScheduleItem, HistoricalEnergyPattern, ITask, IEnergy, IScheduleItem, IHistoricalEnergyPattern, User } from '../models';
 import * as SmartScheduling from '../smart';
 import { TAG, TaskSelect, EnergySelect, ScheduleItem as SmartScheduleItem, SchedulingContext, TaskBody } from '../smart';
 import dayjs = require('dayjs');
@@ -189,10 +190,7 @@ export class SmartSchedulingService {
     const schedule = await this.getScheduleItems(userId, targetDate);
     console.log('[buildSchedulingContext] Schedule items:', schedule.length);
     
-    // Get energy data
-    const energyHistory = await this.getEnergyHistory(userId);
-    console.log('[buildSchedulingContext] Energy history entries:', energyHistory.length);
-    
+    // Get today's energy forecast if scheduling for today
     let todayEnergyForecast: EnergySelect[] | undefined;
     if (strategy.isToday) {
       todayEnergyForecast = await this.getTodayEnergyForecast(userId);
@@ -203,26 +201,31 @@ export class SmartSchedulingService {
     let historicalPatterns = await this.getHistoricalPatterns(userId);
     console.log('[buildSchedulingContext] Historical patterns:', historicalPatterns.length);
     
-    // If no patterns exist, use default patterns
+    // If no patterns exist, generate based on user's sleep schedule
     if (historicalPatterns.length === 0) {
-      console.log('[buildSchedulingContext] Using default energy patterns');
-      historicalPatterns = this.getDefaultEnergyPatterns();
+      console.log('[buildSchedulingContext] No historical patterns found');
       
-      // Optionally save these as the user's initial patterns
-      for (const pattern of historicalPatterns) {
-        await HistoricalEnergyPattern.create({
-          userId,
-          hour: pattern.hour,
-          averageEnergy: pattern.averageEnergy,
-          sampleCount: 0,
-          lastUpdated: new Date()
+      // Check if user has a sleep schedule to generate defaults
+      const user = await User.findById(userId).select('sleepSchedule chronotype');
+      
+      if (user?.sleepSchedule) {
+        console.log('[buildSchedulingContext] Using sleep-based default patterns');
+        // Generate patterns based on sleep schedule
+        historicalPatterns = generateEnergyPatternsFromSleep({
+          sleepSchedule: user.sleepSchedule,
+          chronotype: user.chronotype
         });
+        
+        // Note: We DON'T save these as HistoricalEnergyPatterns
+        // They're just used as defaults until real data is collected
+      } else {
+        console.log('[buildSchedulingContext] Using generic default patterns');
+        historicalPatterns = this.getDefaultEnergyPatterns();
       }
     }
     
     return {
       schedule,
-      energyHistory,
       todayEnergyForecast,
       historicalPatterns,
       schedulingStrategy: strategy.strategy,
@@ -366,16 +369,6 @@ export class SmartSchedulingService {
     }
     
     console.log(`[updateHistoricalPatterns] Updated ${hourlyData.size} hourly patterns for user ${userId}`);
-  }
-
-  /**
-   * Get energy history for a user
-   */
-  private async getEnergyHistory(userId: string): Promise<EnergySelect[]> {
-    const energyData = await Energy.find({ userId })
-      .sort({ date: -1 })
-      .limit(100);
-    return energyData.map(e => this.convertToEnergySelect(e));
   }
 
   /**
