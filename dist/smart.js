@@ -21,6 +21,7 @@ exports.analyzeCognitiveLoad = analyzeCognitiveLoad;
 exports.countCognitiveTasks = countCognitiveTasks;
 exports.getOptimalEnergyStagesForTask = getOptimalEnergyStagesForTask;
 const date_fns_1 = require("date-fns");
+const timezone_1 = require("./utils/timezone");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
 const dayjs = require("dayjs");
@@ -118,17 +119,17 @@ function hasSignificantChanges(task, changes) {
     return requiresRescheduling;
 }
 function determineTargetDate(task) {
-    const hasStartTimeWithoutSpecificTime = task.startTime && isDateOnlyWithoutTime(task.startTime);
+    const hasStartTimeWithoutSpecificTime = task.startTime && (0, timezone_1.isLocalDateOnly)(task.startTime);
     if (hasStartTimeWithoutSpecificTime) {
-        dayjs(task.startTime).tz("Africa/Lagos");
-        const localStartTime = dayjs(task.startTime).tz("Africa/Lagos").toDate();
-        console.log("localStartTime", localStartTime);
-        return localStartTime;
+        // Get start of day in local timezone
+        const localStartOfDay = (0, timezone_1.getLocalStartOfDay)(task.startTime);
+        console.log("localStartTime (start of day):", localStartOfDay);
+        return localStartOfDay;
     }
-    const onlYhasDeadline = task.endTime;
-    if (onlYhasDeadline && !task.startTime) {
-        // NEW: When only deadline is provided, use today as the target date
-        const today = (0, date_fns_1.startOfDay)(new Date());
+    const onlyHasDeadline = task.endTime;
+    if (onlyHasDeadline && !task.startTime) {
+        // When only deadline is provided, use today in local timezone
+        const today = (0, timezone_1.getLocalStartOfDay)((0, timezone_1.getLocalNow)());
         return today;
     }
     const hasDeadline = task.endTime;
@@ -146,7 +147,7 @@ function determineSchedulingStrategy(targetDate) {
             strategy: "future",
         };
     }
-    const isTargetDateToday = (0, date_fns_1.isSameDay)(targetDate, new Date());
+    const isTargetDateToday = (0, timezone_1.isSameLocalDay)(targetDate, (0, timezone_1.getLocalNow)());
     const strategy = isTargetDateToday ? "today" : "future";
     return {
         isToday: isTargetDateToday,
@@ -181,10 +182,7 @@ function isStartTimeSet(task) {
 function isDateOnlyWithoutTime(date) {
     if (!date)
         return false;
-    console.log("task date date", date);
-    const localTime = dayjs(date).tz("Africa/Lagos");
-    console.log("localTime", localTime);
-    return localTime.format("HH:mm:ss") === "00:00:00";
+    return (0, timezone_1.isLocalDateOnly)(date);
 }
 function hasSignificantPriorityChange(task, changes) {
     const significantPriorityThreshold = 2;
@@ -353,10 +351,13 @@ function isHistoricalEnergyValid(requirements) {
 function mapPatternToSlot(targetDate) {
     return (pattern) => {
         const slotDurationMinutes = 60;
-        const slotStartTime = (0, date_fns_1.setHours)((0, date_fns_1.setMinutes)(targetDate, 0), pattern.hour);
+        console.log("targetDate", targetDate);
+        const slotHour = (0, date_fns_1.setMinutes)(targetDate, 0);
+        console.log("slotHour", slotHour);
+        const slotStartTime = (0, date_fns_1.setHours)(slotHour, pattern.hour);
+        console.log("slotStartTime", slotStartTime);
         const slotEndTime = (0, date_fns_1.addMinutes)(slotStartTime, slotDurationMinutes);
-        slotStartTime.setSeconds(0, 0);
-        slotEndTime.setSeconds(0, 0);
+        console.log("slotEndTime", slotEndTime);
         return {
             startTime: slotStartTime,
             endTime: slotEndTime,

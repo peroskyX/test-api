@@ -118,11 +118,6 @@ class SmartSchedulingService {
             }
             // Sort slots by energy level and pick the best one
             const sortedSlots = availableSlots.sort((a, b) => b.energyLevel - a.energyLevel);
-            // // Sort slots by energy (desc), then by earliest time (asc)
-            // const sortedSlots = availableSlots.sort((a, b) => {
-            //   if (b.energyLevel !== a.energyLevel) return b.energyLevel - a.energyLevel;
-            //   return a.startTime.getTime() - b.startTime.getTime();
-            // });
             const bestSlot = sortedSlots[0];
             const startTime = bestSlot.startTime;
             const endTime = (0, date_fns_1.addMinutes)(startTime, taskDuration);
@@ -197,7 +192,9 @@ class SmartSchedulingService {
         if (targetDate) {
             // Get items for the specific day and a few days around it
             const startOfTargetDay = (0, date_fns_1.startOfDay)(targetDate);
+            console.log("startOfTargetDay", startOfTargetDay);
             const endOfSearchWindow = (0, date_fns_1.addDays)(startOfTargetDay, 7); // Look ahead 7 days
+            console.log("endOfSearchWindow", endOfSearchWindow);
             query.startTime = { $gte: startOfTargetDay, $lt: endOfSearchWindow };
         }
         else {
@@ -206,7 +203,9 @@ class SmartSchedulingService {
             const futureLimit = (0, date_fns_1.addDays)(now, 30);
             query.startTime = { $gte: now, $lt: futureLimit };
         }
+        console.log(" this are the query", query);
         const items = await models_1.ScheduleItem.find(query).sort({ startTime: 1 });
+        console.log("items", items);
         return items.map(item => ({
             id: item.id,
             title: item.title,

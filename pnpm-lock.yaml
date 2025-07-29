@@ -29,9 +29,6 @@ dependencies:
   date-fns:
     specifier: ^2.30.0
     version: 2.30.0
-  date-fns-tz:
-    specifier: ^3.2.0
-    version: 3.2.0(date-fns@2.30.0)
   dayjs:
     specifier: ^1.11.13
     version: 1.11.13
@@ -852,14 +849,6 @@ packages:
   /create-require@1.1.1:
     resolution: {integrity: sha512-dcKFX3jn0MpIaXjisoRvexIJVEKzaq7z2rZKxf+MSr9TkdmHmsU4m2lcLojrj/FHl8mk5VxMmYA+ftRkP/3oKQ==}
     dev: true
-
-  /date-fns-tz@3.2.0(date-fns@2.30.0):
-    resolution: {integrity: sha512-sg8HqoTEulcbbbVXeg84u5UnlsQa8GS5QXMqjjYIhS4abEVVKIUwe0/l/UhrZdKaL/W5eWZNlbTeEIiOXTcsBQ==}
-    peerDependencies:
-      date-fns: ^3.0.0 || ^4.0.0
-    dependencies:
-      date-fns: 2.30.0
-    dev: false
 
   /date-fns@2.30.0:
     resolution: {integrity: sha512-fnULvOpxnC5/Vg3NCiWelDsLiUc9bRwAPs/+LfTLNvetFCtCTN+yQz15C/fs4AwX1R9K5GLtLfn8QW+dWisaAw==}
