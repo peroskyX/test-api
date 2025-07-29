@@ -191,7 +191,7 @@ class SmartSchedulingService {
         const query = { userId };
         if (targetDate) {
             // Get items for the specific day and a few days around it
-            const startOfTargetDay = (0, date_fns_1.startOfDay)(targetDate);
+            const startOfTargetDay = targetDate;
             console.log("startOfTargetDay", startOfTargetDay);
             const endOfSearchWindow = (0, date_fns_1.addDays)(startOfTargetDay, 7); // Look ahead 7 days
             console.log("endOfSearchWindow", endOfSearchWindow);
