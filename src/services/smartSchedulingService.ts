@@ -320,9 +320,7 @@ export class SmartSchedulingService {
   private convertToEnergySelect(energy: IEnergy): EnergySelect {
     // Create the date at the specific hour
     const energyDate = new Date(energy.date);
-    // Increment hour by 1 and ensure it wraps around at 24
-    const adjustedHour = (energy.hour + 1) % 24;
-    energyDate.setHours(adjustedHour, 0, 0, 0);
+    energyDate.setHours(energy.hour, 0, 0, 0);
     
     return {
       userId: energy.userId,
