@@ -214,8 +214,10 @@ function hasSignificantChanges(task: TaskSelect, changes: Partial<TaskBody>) {
 export function determineTargetDate(task: TaskSelect): Date | null {
   const hasStartTimeWithoutSpecificTime = task.startTime && isDateOnlyWithoutTime(task.startTime);
   if (hasStartTimeWithoutSpecificTime) {
+    console.log("hasStartTimeWithoutSpecificTime", task.startTime);
     dayjs(task.startTime).tz("Africa/Lagos");
     const localStartTime = dayjs(task.startTime).tz("Africa/Lagos").toDate();
+    console.log("localStartTime", localStartTime);
     return localStartTime;
   }
 
@@ -286,10 +288,8 @@ export function isStartTimeSet(task: TaskSelect) {
 export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date) return false;
   
-  console.log("task date date", date);
+  console.log("task date", date);
   const localTime = dayjs(date).tz("Africa/Lagos");
-  const dayss = localTime.format("DD:month:YYYY");
-  console.log("dayss", dayss);
   
   return localTime.format("HH:mm:ss") === "00:00:00";
 }

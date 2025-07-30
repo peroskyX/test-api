@@ -253,11 +253,10 @@ export class SmartSchedulingService {
     
     if (targetDate) {
       // Get items for the specific day and a few days around it
-      const startOfTargetDay = startOfDay(targetDate);
-      console.log("startOfTargetDay", startOfTargetDay);
-      const endOfSearchWindow = addDays(startOfTargetDay, 7); // Look ahead 7 days
+      console.log("targetDate", targetDate);
+      const endOfSearchWindow = addDays(targetDate, 7);
       console.log("endOfSearchWindow", endOfSearchWindow);
-      query.startTime = { $gte: startOfTargetDay, $lt: endOfSearchWindow };
+      query.startTime = { $gte: targetDate, $lt: endOfSearchWindow };
       console.log("query", query);
     } else {
       // Get upcoming items

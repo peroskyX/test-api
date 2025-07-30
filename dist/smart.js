@@ -120,8 +120,10 @@ function hasSignificantChanges(task, changes) {
 function determineTargetDate(task) {
     const hasStartTimeWithoutSpecificTime = task.startTime && isDateOnlyWithoutTime(task.startTime);
     if (hasStartTimeWithoutSpecificTime) {
+        console.log("hasStartTimeWithoutSpecificTime", task.startTime);
         dayjs(task.startTime).tz("Africa/Lagos");
         const localStartTime = dayjs(task.startTime).tz("Africa/Lagos").toDate();
+        console.log("localStartTime", localStartTime);
         return localStartTime;
     }
     const onlYhasDeadline = task.endTime;
@@ -180,10 +182,8 @@ function isStartTimeSet(task) {
 function isDateOnlyWithoutTime(date) {
     if (!date)
         return false;
-    console.log("task date date", date);
+    console.log("task date", date);
     const localTime = dayjs(date).tz("Africa/Lagos");
-    const dayss = localTime.format("DD:month:YYYY");
-    console.log("dayss", dayss);
     return localTime.format("HH:mm:ss") === "00:00:00";
 }
 function hasSignificantPriorityChange(task, changes) {
