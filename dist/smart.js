@@ -147,10 +147,10 @@ function determineSchedulingStrategy(targetDate) {
             strategy: "future",
         };
     }
-    const isTargetDateToday = (0, date_fns_1.isSameDay)(targetDate, new Date());
+    const isTargetDateToday = dayjs(targetDate).utc().format('YYYY-MM-DD') === dayjs().utc().format('YYYY-MM-DD');
     console.log("isTargetDateToday", isTargetDateToday);
-    console.log("targetDate", targetDate);
-    console.log("new Date()", new Date());
+    console.log("targetDate UTC", dayjs(targetDate).utc().format('YYYY-MM-DD'));
+    console.log("today UTC", dayjs().utc().format('YYYY-MM-DD'));
     const strategy = isTargetDateToday ? "today" : "future";
     return {
         isToday: isTargetDateToday,
