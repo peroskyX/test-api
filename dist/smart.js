@@ -352,19 +352,15 @@ function mapPatternToSlot(targetDate) {
     return (pattern) => {
         const slotDurationMinutes = 60;
         console.log("targetDate", targetDate);
-        console.log("targetDate", targetDate.toISOString());
-        // Step 1: Convert targetDate to milliseconds
-        const targetDateMs = targetDate.getTime();
-        // Step 2: Convert pattern.hour to milliseconds
-        const patternHourMs = pattern.hour * 60 * 60 * 1000;
-        // Step 3: Add them together
-        const combinedMs = targetDateMs + patternHourMs;
-        // Step 4: Convert back to Date (UTC)
-        const slotStartTime = new Date(combinedMs);
-        console.log("pattern.hour", pattern.hour);
-        console.log("calculated slotStartTime", slotStartTime.toISOString());
+        const slotStartTime = dayjs(targetDate)
+            .tz('Africa/Lagos') // Convert to user timezone
+            .hour(pattern.hour) // Set the hour in user timezone
+            .minute(0) // Reset to start of hour
+            .second(0)
+            .millisecond(0)
+            .utc() // Convert back to UTC
+            .toDate(); // Get JavaScript Date
         const slotEndTime = (0, date_fns_1.addMinutes)(slotStartTime, slotDurationMinutes);
-        console.log("slotEndTime", slotEndTime.toISOString());
         return {
             startTime: slotStartTime,
             endTime: slotEndTime,

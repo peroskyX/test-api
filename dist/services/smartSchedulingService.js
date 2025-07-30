@@ -95,6 +95,8 @@ class SmartSchedulingService {
                 console.log('[findOptimalTimeForTask] Next day start:', task.startTime);
                 const nextDayStart = (0, date_fns_1.startOfDay)(nextDay);
                 // Don't look ahead if there's a deadline and the next day would exceed it
+                console.log('[findOptimalTimeForTask] Next day start:', nextDayStart);
+                console.log('[findOptimalTimeForTask] Task deadline:', task.endTime);
                 if (task.endTime && nextDayStart >= task.endTime) {
                     console.log('[findOptimalTimeForTask] Cannot look ahead: would exceed task deadline', {
                         deadline: task.endTime,
