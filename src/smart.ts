@@ -7,10 +7,6 @@ import {
   setMinutes,
   startOfDay,
 } from "date-fns";
-
-import { format } from "@formkit/tempo"
-
-import { getLocalStartOfDay, isLocalDateOnly, getLocalNow, isSameLocalDay } from './utils/timezone';
 import * as utc from 'dayjs/plugin/utc' 
 import * as timezone from 'dayjs/plugin/timezone';
 import * as dayjs from 'dayjs'
@@ -216,33 +212,25 @@ function hasSignificantChanges(task: TaskSelect, changes: Partial<TaskBody>) {
 }
 
 export function determineTargetDate(task: TaskSelect): Date | null {
-  const hasStartTimeWithoutSpecificTime = task.startTime && isLocalDateOnly(task.startTime);
+  const hasStartTimeWithoutSpecificTime = task.startTime && isDateOnlyWithoutTime(task.startTime);
   if (hasStartTimeWithoutSpecificTime) {
-    // Get start of day in local timezone
-    const localStartOfDay = getLocalStartOfDay(task.startTime);
-    console.log("localStartTime (start of day):", localStartOfDay);
-    return localStartOfDay;
+    dayjs(task.startTime).tz("Africa/Lagos");
+    const localStartTime = dayjs(task.startTime).tz("Africa/Lagos").toDate();
+    return localStartTime;
   }
 
-  const onlyHasDeadline = task.endTime;
-  if (onlyHasDeadline && !task.startTime) {
-    // When only deadline is provided, use today in local timezone
-    const today = getLocalStartOfDay(getLocalNow());
+  const onlYhasDeadline = task.endTime;
+  if ( onlYhasDeadline && !task.startTime) {
+    // NEW: When only deadline is provided, use today as the target date
+    const today = startOfDay(new Date());
     return today;
   }
 
   const hasDeadline = task.endTime;
-  if (hasDeadline && task.startTime) {
-    const deadlineBasedDate = calculateDeadlineBasedDate(task.endTime!);
-    return task.startTime;
-  }
-
-  const hasDeadlineonly = task.endTime;
-  if (hasDeadlineonly) {
+  if (hasDeadline) {
     const deadlineBasedDate = calculateDeadlineBasedDate(task.endTime!);
     return deadlineBasedDate;
   }
-  
 
   return null;
 }
@@ -257,7 +245,7 @@ export function determineSchedulingStrategy(targetDate: Date | null) {
     };
   }
 
-  const isTargetDateToday = isSameLocalDay(targetDate, getLocalNow());
+  const isTargetDateToday = isSameDay(targetDate, new Date());
   const strategy = isTargetDateToday ? ("today" as const) : ("future" as const);
 
   return {
@@ -297,7 +285,13 @@ export function isStartTimeSet(task: TaskSelect) {
 
 export function isDateOnlyWithoutTime(date: Date | null) {
   if (!date) return false;
-  return isLocalDateOnly(date);
+  
+  console.log("task date date", date);
+  const localTime = dayjs(date).tz("Africa/Lagos");
+  const dayss = localTime.format("DD:month:YYYY");
+  console.log("dayss", dayss);
+  
+  return localTime.format("HH:mm:ss") === "00:00:00";
 }
 
 function hasSignificantPriorityChange(task: TaskSelect, changes: Partial<TaskBody>) {
@@ -548,10 +542,9 @@ function isHistoricalEnergyValid(requirements: { min: number; max: number }) {
 }
 
 function mapPatternToSlot(targetDate: Date) {
+  console.log("targetDate", targetDate);
   return (pattern: HistoricalEnergyPattern): EnergySlot => {
     const slotDurationMinutes = 60;
-
-    console.log("targetDate", targetDate);
 
     const slotStartTime = dayjs(targetDate)
     .tz('Africa/Lagos')           // Convert to user timezone
@@ -586,43 +579,12 @@ function addConflictFlag(schedule: ScheduleItem[], duration: number) {
     }));
 }
 
-// export function analyzeCognitiveLoad(schedule: ScheduleItem[]) {
-//   const highCognitiveLoadThreshold = 2;
-//   const tasks = schedule.filter(item => item.type === "task") as unknown as TaskSelect[];
-//   const cognitiveTasks = countCognitiveTasks(tasks);
-//   const cognitiveTaskCount = cognitiveTasks.length;
-
-//   const hasHighCognitiveLoad = cognitiveTaskCount >= highCognitiveLoadThreshold;
-
-//   const recommendedBuffer = hasHighCognitiveLoad
-//     ? "At least 30 minutes between demanding tasks"
-//     : "No buffer needed";
-
-//   return {
-//     recentDeepTaskCount: cognitiveTaskCount,
-//     recommendedBuffer,
-//   };
-// }
-
 export function analyzeCognitiveLoad(schedule: ScheduleItem[]) {
   const highCognitiveLoadThreshold = 2;
-  
-  // For schedule items, we can infer cognitive load from task titles
-  // This is a simplified approach since ScheduleItem doesn't have tag information
-  const cognitiveTasks = schedule.filter(item => {
-    if (item.type !== "task") return false;
-    
-    const title = item.title.toLowerCase();
-    // Check if title indicates deep work or creative tasks
-    return title.includes("deep") || 
-           title.includes("creative") || 
-           title.includes("research") || 
-           title.includes("design") ||
-           title.includes("analysis") ||
-           title.includes("development");
-  });
-  
+  const tasks = schedule.filter(item => item.type === "task") as unknown as TaskSelect[];
+  const cognitiveTasks = countCognitiveTasks(tasks);
   const cognitiveTaskCount = cognitiveTasks.length;
+
   const hasHighCognitiveLoad = cognitiveTaskCount >= highCognitiveLoadThreshold;
 
   const recommendedBuffer = hasHighCognitiveLoad

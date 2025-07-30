@@ -8,20 +8,16 @@ import { protect } from '../middleware/authMiddleware';
 export const scheduleRoutes: Router = Router();
 const schedulingService = new SmartSchedulingService();
 
-// Apply protection middleware to all schedule routes
 scheduleRoutes.use(protect);
 
-// Add a schedule item (event)
 scheduleRoutes.post('/', async (req: Request, res: Response) => {
   try {
-    // Ensure the item belongs to the authenticated user
     const scheduleItem = new ScheduleItem({
       ...req.body,
       userId: req.userId
     });
     await scheduleItem.save();
     
-    // If it's an event, reschedule affected tasks
     if (scheduleItem.type === 'event') {
       await schedulingService.rescheduleTasksForNewEvent(scheduleItem);
     }
@@ -37,7 +33,6 @@ scheduleRoutes.get('/', async (req: Request, res: Response) => {
   try {
     const { type, startDate, endDate } = req.query;
     const query: any = {
-      // Always filter by the authenticated user's ID
       userId: req.userId
     };
     
@@ -55,10 +50,8 @@ scheduleRoutes.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// Delete a schedule item
 scheduleRoutes.delete('/:id', async (req: Request, res: Response) => {
   try {
-    // Only allow deletion of the user's own items
     const item = await ScheduleItem.findOneAndDelete({
       _id: req.params.id,
       userId: req.userId
@@ -67,9 +60,7 @@ scheduleRoutes.delete('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Schedule item not found' });
     }
     
-    // If it was an event, reschedule tasks that might now have free time
     if (item.type === 'event') {
-      // Find tasks that could potentially use this freed time slot
       const tasksToReschedule = await Task.find({
         userId: item.userId,
         isAutoSchedule: true,

@@ -3,6 +3,7 @@ import { Router, Request, Response } from 'express';
 import { Task, ScheduleItem } from '../models';
 import { SmartSchedulingService } from '../services/smartSchedulingService';
 import { protect } from '../middleware/authMiddleware';
+import { processTaskDeadline } from '../utills/deadlineUtils';
 
 export const taskRoutes: Router = Router();
 const schedulingService = new SmartSchedulingService();
@@ -14,10 +15,23 @@ taskRoutes.use(protect);
 taskRoutes.post('/', async (req: Request, res: Response) => {
   try {
     // Ensure the task belongs to the authenticated user
+    const processedTaskData = processTaskDeadline(req.body);
+    
+    // Ensure the task belongs to the authenticated user
     const taskData = {
-      ...req.body,
+      ...processedTaskData,
       userId: req.userId
     };
+
+    console.log('[Task Creation] Original body:', {
+      startTime: req.body.startTime,
+      endTime: req.body.endTime
+    });
+    
+    console.log('[Task Creation] Processed data:', {
+      startTime: taskData.startTime,
+      endTime: taskData.endTime
+    });
     const task = await schedulingService.createTaskWithSmartScheduling(taskData);
     res.status(201).json(task);
   } catch (error) {
@@ -65,6 +79,45 @@ taskRoutes.get('/:id', async (req: Request, res: Response) => {
 });
 
 // Update a task
+taskRoutes.put('/:id', async (req: Request, res: Response) => {
+  try {
+    // First verify this is the user's task
+    const existingTask = await Task.findOne({
+      _id: req.params.id,
+      userId: req.userId
+    });
+    
+    if (!existingTask) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    
+    // Process deadline logic for updates
+    const processedUpdates = processTaskDeadline(req.body);
+    
+    // Prevent changing the userId
+    delete processedUpdates.userId;
+    
+    console.log('[Task Update] Original updates:', {
+      startTime: req.body.startTime,
+      endTime: req.body.endTime
+    });
+    
+    console.log('[Task Update] Processed updates:', {
+      startTime: processedUpdates.startTime,
+      endTime: processedUpdates.endTime
+    });
+    
+    const task = await schedulingService.updateTaskWithRescheduling(req.params.id, processedUpdates);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    res.json(task);
+  } catch (error) {
+    console.error('[Task Update] Error:', error);
+    return res.status(400).json({ error: (error as Error).message });
+  }
+});
+
 taskRoutes.put('/:id', async (req: Request, res: Response) => {
   try {
     // First verify this is the user's task

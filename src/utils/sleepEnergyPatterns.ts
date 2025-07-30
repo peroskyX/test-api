@@ -19,7 +19,7 @@ export function generateEnergyPatternsFromSleep(options: EnergyPatternOptions): 
   // Calculate sleep duration and key time points
   const sleepDuration = calculateSleepDuration(bedtime, wakeHour);
   const midDay = calculateMidDay(wakeHour, bedtime);
-  
+  console.log('[generateEnergyPatternsFromSleep] Sleep duration:', sleepDuration);
   // Generate 24-hour energy pattern
   for (let hour = 0; hour < 24; hour++) {
     const energy = calculateEnergyForHour(hour, wakeHour, bedtime, midDay, chronotype);

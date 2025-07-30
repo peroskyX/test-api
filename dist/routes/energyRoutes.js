@@ -9,28 +9,6 @@ const sleepEnergySeeder_1 = require("../utils/sleepEnergySeeder");
 const authMiddleware_1 = require("../middleware/authMiddleware");
 exports.energyRoutes = (0, express_1.Router)();
 const schedulingService = new smartSchedulingService_1.SmartSchedulingService();
-// Add energy data
-exports.energyRoutes.post('/', async (req, res) => {
-    try {
-        // Extract and set the hour from the date if it exists
-        const requestData = req.body;
-        if (requestData.date) {
-            // Convert string date to Date object if needed
-            const dateObj = typeof requestData.date === 'string' ? new Date(requestData.date) : requestData.date;
-            // Extract hour from the date (using UTC to ensure consistency) and increase by 1
-            requestData.hour = (dateObj.getUTCHours() + 1) % 24; // Add 1 to hour and ensure it wraps around at 24
-            console.log(`Setting energy hour to: ${requestData.hour} (original hour + 1)`);
-        }
-        const energyData = new models_1.Energy(requestData);
-        await energyData.save();
-        // Update historical patterns
-        await schedulingService.updateHistoricalPatterns(energyData.userId);
-        res.status(201).json(energyData);
-    }
-    catch (error) {
-        return res.status(400).json({ error: error.message });
-    }
-});
 // Get energy data for a user
 exports.energyRoutes.get('/', async (req, res) => {
     try {
@@ -58,7 +36,6 @@ exports.energyRoutes.get('/', async (req, res) => {
         return res.status(500).json({ error: error.message });
     }
 });
-// Get historical energy patterns
 exports.energyRoutes.get('/patterns', async (req, res) => {
     try {
         const { userId } = req.query;
@@ -66,7 +43,6 @@ exports.energyRoutes.get('/patterns', async (req, res) => {
             return res.status(400).json({ error: 'userId is required' });
         }
         let patterns = await models_1.HistoricalEnergyPattern.find({ userId }).sort({ hour: 1 });
-        // If no patterns exist, return default patterns
         if (patterns.length === 0) {
             patterns = schedulingService.getDefaultEnergyPatterns().map(p => ({
                 userId: userId,
@@ -102,8 +78,6 @@ exports.energyRoutes.post('/seed-from-sleep', authMiddleware_1.protect, async (r
             daysToGenerate,
             startDate: startDate ? new Date(startDate) : new Date()
         });
-        console.log('[updateHistoricalPatterns] updating historical patterns.................', req.userId, user._id);
-        // Update historical patterns based on the new data
         await schedulingService.updateHistoricalPatterns(req.userId);
         res.status(201).json({
             message: `Successfully ${hasExistingData ? 'added' : 'seeded'} ${energyData.length} energy entries`,

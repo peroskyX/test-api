@@ -1,15 +1,18 @@
 // src/services/smartSchedulingService.ts - FIXED VERSION
 import { addDays, startOfDay, setHours, setMinutes, addMinutes } from 'date-fns';
-import { generateEnergyPatternsFromSleep } from '../utils/sleepEnergyPatterns';
 import { Task, Energy, ScheduleItem, HistoricalEnergyPattern, ITask, IEnergy, IScheduleItem, IHistoricalEnergyPattern, User } from '../models';
 import * as SmartScheduling from '../smart';
 import { TAG, TaskSelect, EnergySelect, ScheduleItem as SmartScheduleItem, SchedulingContext, TaskBody } from '../smart';
 import dayjs = require('dayjs');
+import { NotificationService } from './notificationService';
 
 export class SmartSchedulingService {
-  /**
-   * Create a new task with smart scheduling
-   */
+  private notificationService: NotificationService;
+  
+  constructor() {
+    this.notificationService = new NotificationService();
+  }
+ 
   async createTaskWithSmartScheduling(taskData: Partial<ITask>): Promise<ITask> {
     console.log('[SmartSchedulingService] Creating task with data:', {
       title: taskData.title,
@@ -20,7 +23,6 @@ export class SmartSchedulingService {
 
     const task = new Task(taskData);
     
-    // Convert to TaskSelect format for smart scheduling logic
     const taskSelect = this.convertToTaskSelect(task);
     console.log('[SmartSchedulingService] Converted to TaskSelect:', {
       id: taskSelect.id,
@@ -40,22 +42,41 @@ export class SmartSchedulingService {
         console.log('[SmartSchedulingService] Found optimal time:', scheduledTime);
         task.startTime = scheduledTime.startTime;
         task.endTime = scheduledTime.endTime;
-      } else {
-        console.log('[SmartSchedulingService] No optimal time found, using original time');
-      }
-    }
-    
-    await task.save();
-    
-    // Add to schedule if task has a start time
-    if (task.startTime && task.endTime) {
-      await this.addTaskToSchedule(task);
-    }
+        
+        // Save the task since we found an optimal time
+        await task.save();
+        
+        // Add to schedule if task has a start time
+        if (task.startTime && task.endTime) {
+          await this.addTaskToSchedule(task);
+        }
 
-    if (task.startTime && !task.endTime && task.estimatedDuration) {
-      const claculatedDuration = addMinutes(task.startTime, task.estimatedDuration);
-      task.endTime = claculatedDuration;
-      await this.addTaskToSchedule(task);
+        if (task.startTime && !task.endTime && task.estimatedDuration) {
+          const claculatedDuration = addMinutes(task.startTime, task.estimatedDuration);
+          task.endTime = claculatedDuration;
+          await this.addTaskToSchedule(task);
+        }
+      } else {
+        console.log('[SmartSchedulingService] No optimal time found, sending notification');
+        // Send notification instead of saving the task
+        await this.notificationService.notifyNoOptimalTime(task);
+        // We don't save the task when no optimal time is found
+        return task; // Return task without saving
+      }
+    } else {
+      // No scheduling needed, just save the task as is
+      await task.save();
+      
+      // Add to schedule if task has a start time
+      if (task.startTime && task.endTime) {
+        await this.addTaskToSchedule(task);
+      }
+
+      if (task.startTime && !task.endTime && task.estimatedDuration) {
+        const claculatedDuration = addMinutes(task.startTime, task.estimatedDuration);
+        task.endTime = claculatedDuration;
+        await this.addTaskToSchedule(task);
+      }
     }
     
     console.log('[SmartSchedulingService] Task created with final time:', {
@@ -120,8 +141,6 @@ export class SmartSchedulingService {
         const nextDayStart = startOfDay(nextDay);
         
         // Don't look ahead if there's a deadline and the next day would exceed it
-        console.log('[findOptimalTimeForTask] Next day start:', nextDayStart);
-        console.log('[findOptimalTimeForTask] Task deadline:', task.endTime);
         if (task.endTime && nextDayStart >= task.endTime) {
           console.log('[findOptimalTimeForTask] Cannot look ahead: would exceed task deadline', {
             deadline: task.endTime,
@@ -135,14 +154,10 @@ export class SmartSchedulingService {
           console.log(`[findOptimalTimeForTask] Looking ahead to day ${daysToLookAhead + 1}`);
           
           // Create a modified task with target date shifted to the next day
-          const nextDayTask: TaskSelect = { 
-            ...task,
-            startTime: nextDayStart  // Set to start of next day for targeting
-            // Keep original endTime unchanged so deadline logic works correctly
-          };
+          const nextDayTask = { ...task };
           
           // Set the start time to the next day
-          // nextDayTask.startTime = nextDayStart;
+          nextDayTask.startTime = nextDayStart;
           console.log('[findOptimalTimeForTask] Next day task:', nextDayTask);
           
           // Recursively call this function with the incremented daysToLookAhead counter
@@ -156,7 +171,6 @@ export class SmartSchedulingService {
       // Sort slots by energy level and pick the best one
       const sortedSlots = availableSlots.sort((a, b) => b.energyLevel - a.energyLevel);
 
-      
       const bestSlot = sortedSlots[0];
       
       const startTime = bestSlot.startTime;
@@ -210,12 +224,9 @@ export class SmartSchedulingService {
       const user = await User.findById(userId).select('sleepSchedule chronotype');
       
       if (user?.sleepSchedule) {
-        console.log('[buildSchedulingContext] Using sleep-based default patterns');
+        console.log('[buildSchedulingContext] Using first default patterns');
         // Generate patterns based on sleep schedule
-        historicalPatterns = generateEnergyPatternsFromSleep({
-          sleepSchedule: user.sleepSchedule,
-          chronotype: user.chronotype
-        });
+        historicalPatterns = this.getDefaultEnergyPatterns();
         
         // Note: We DON'T save these as HistoricalEnergyPatterns
         // They're just used as defaults until real data is collected
@@ -242,18 +253,19 @@ export class SmartSchedulingService {
     
     if (targetDate) {
       // Get items for the specific day and a few days around it
-      const startOfTargetDay = targetDate
+      const startOfTargetDay = startOfDay(targetDate);
       console.log("startOfTargetDay", startOfTargetDay);
       const endOfSearchWindow = addDays(startOfTargetDay, 7); // Look ahead 7 days
       console.log("endOfSearchWindow", endOfSearchWindow);
       query.startTime = { $gte: startOfTargetDay, $lt: endOfSearchWindow };
+      console.log("query", query);
     } else {
       // Get upcoming items
       const now = new Date();
       const futureLimit = addDays(now, 30);
       query.startTime = { $gte: now, $lt: futureLimit };
     }
-    console.log(" this are the query", query);
+    
     const items = await ScheduleItem.find(query).sort({ startTime: 1 });
     console.log("items", items);
     return items.map(item => ({
@@ -465,6 +477,7 @@ export class SmartSchedulingService {
    * Get default energy patterns (fallback when no user data)
    */
   getDefaultEnergyPatterns(): SmartScheduling.HistoricalEnergyPattern[] {
+    console.log('[getDefaultEnergyPatterns] Using default patterns');
     return [
       { hour: 6, averageEnergy: 0.3 },   // Early morning
       { hour: 7, averageEnergy: 0.5 },   // Morning rise

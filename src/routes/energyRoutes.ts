@@ -9,30 +9,6 @@ import { protect } from '../middleware/authMiddleware';
 export const energyRoutes: Router = Router();
 const schedulingService = new SmartSchedulingService();
 
-// Add energy data
-energyRoutes.post('/', async (req: Request, res: Response) => {
-  try {
-    // Extract and set the hour from the date if it exists
-    const requestData = req.body;
-    if (requestData.date) {
-      // Convert string date to Date object if needed
-      const dateObj = typeof requestData.date === 'string' ? new Date(requestData.date) : requestData.date;
-      // Extract hour from the date (using UTC to ensure consistency) and increase by 1
-      requestData.hour = (dateObj.getUTCHours() + 1) % 24; // Add 1 to hour and ensure it wraps around at 24
-      console.log(`Setting energy hour to: ${requestData.hour} (original hour + 1)`);
-    }
-    
-    const energyData = new Energy(requestData);
-    await energyData.save();
-    
-    // Update historical patterns
-    await schedulingService.updateHistoricalPatterns(energyData.userId);
-    
-    res.status(201).json(energyData);
-  } catch (error) {
-    return res.status(400).json({ error: (error as Error).message });
-  }
-});
 
 // Get energy data for a user
 energyRoutes.get('/', async (req: Request, res: Response) => {
@@ -59,7 +35,6 @@ energyRoutes.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// Get historical energy patterns
 energyRoutes.get('/patterns', async (req: Request, res: Response) => {
   try {
     const { userId } = req.query;
@@ -70,7 +45,6 @@ energyRoutes.get('/patterns', async (req: Request, res: Response) => {
     
     let patterns = await HistoricalEnergyPattern.find({ userId }).sort({ hour: 1 });
     
-    // If no patterns exist, return default patterns
     if (patterns.length === 0) {
       patterns = schedulingService.getDefaultEnergyPatterns().map(p => ({
         userId: userId as string,
@@ -111,8 +85,6 @@ energyRoutes.post('/seed-from-sleep', protect, async (req: Request, res: Respons
       startDate: startDate ? new Date(startDate) : new Date()
     });
 
-    console.log('[updateHistoricalPatterns] updating historical patterns.................', req.userId, user._id);
-    // Update historical patterns based on the new data
     await schedulingService.updateHistoricalPatterns(req.userId!);
 
     res.status(201).json({
