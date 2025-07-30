@@ -148,6 +148,9 @@ function determineSchedulingStrategy(targetDate) {
         };
     }
     const isTargetDateToday = (0, date_fns_1.isSameDay)(targetDate, new Date());
+    console.log("isTargetDateToday", isTargetDateToday);
+    console.log("targetDate", targetDate);
+    console.log("new Date()", new Date());
     const strategy = isTargetDateToday ? "today" : "future";
     return {
         isToday: isTargetDateToday,

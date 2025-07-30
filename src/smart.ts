@@ -248,6 +248,9 @@ export function determineSchedulingStrategy(targetDate: Date | null) {
   }
 
   const isTargetDateToday = isSameDay(targetDate, new Date());
+  console.log("isTargetDateToday", isTargetDateToday);
+  console.log("targetDate", targetDate);
+  console.log("new Date()", new Date());
   const strategy = isTargetDateToday ? ("today" as const) : ("future" as const);
 
   return {
