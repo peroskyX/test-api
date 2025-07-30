@@ -17,8 +17,9 @@ energyRoutes.post('/', async (req: Request, res: Response) => {
     if (requestData.date) {
       // Convert string date to Date object if needed
       const dateObj = typeof requestData.date === 'string' ? new Date(requestData.date) : requestData.date;
-      // Extract hour from the date (using UTC to ensure consistency)
-      requestData.hour = dateObj.getUTCHours();
+      // Extract hour from the date (using UTC to ensure consistency) and increase by 1
+      requestData.hour = (dateObj.getUTCHours() + 1) % 24; // Add 1 to hour and ensure it wraps around at 24
+      console.log(`Setting energy hour to: ${requestData.hour} (original hour + 1)`);
     }
     
     const energyData = new Energy(requestData);

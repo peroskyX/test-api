@@ -232,10 +232,17 @@ export function determineTargetDate(task: TaskSelect): Date | null {
   }
 
   const hasDeadline = task.endTime;
-  if (hasDeadline) {
+  if (hasDeadline && task.startTime) {
+    const deadlineBasedDate = calculateDeadlineBasedDate(task.endTime!);
+    return task.startTime;
+  }
+
+  const hasDeadlineonly = task.endTime;
+  if (hasDeadlineonly) {
     const deadlineBasedDate = calculateDeadlineBasedDate(task.endTime!);
     return deadlineBasedDate;
   }
+  
 
   return null;
 }
@@ -556,6 +563,8 @@ function mapPatternToSlot(targetDate: Date) {
     .toDate();                  // Get JavaScript Date
 
   const slotEndTime = addMinutes(slotStartTime, slotDurationMinutes);
+  console.log("slotStartTime", slotStartTime);
+  console.log("slotEndTime", slotEndTime);
 
     return {
       startTime: slotStartTime,

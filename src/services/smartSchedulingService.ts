@@ -135,10 +135,14 @@ export class SmartSchedulingService {
           console.log(`[findOptimalTimeForTask] Looking ahead to day ${daysToLookAhead + 1}`);
           
           // Create a modified task with target date shifted to the next day
-          const nextDayTask = { ...task };
+          const nextDayTask: TaskSelect = { 
+            ...task,
+            startTime: nextDayStart  // Set to start of next day for targeting
+            // Keep original endTime unchanged so deadline logic works correctly
+          };
           
           // Set the start time to the next day
-          nextDayTask.startTime = nextDayStart;
+          // nextDayTask.startTime = nextDayStart;
           console.log('[findOptimalTimeForTask] Next day task:', nextDayTask);
           
           // Recursively call this function with the incremented daysToLookAhead counter
@@ -316,7 +320,9 @@ export class SmartSchedulingService {
   private convertToEnergySelect(energy: IEnergy): EnergySelect {
     // Create the date at the specific hour
     const energyDate = new Date(energy.date);
-    energyDate.setHours(energy.hour, 0, 0, 0);
+    // Increment hour by 1 and ensure it wraps around at 24
+    const adjustedHour = (energy.hour + 1) % 24;
+    energyDate.setHours(adjustedHour, 0, 0, 0);
     
     return {
       userId: energy.userId,

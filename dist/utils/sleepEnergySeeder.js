@@ -30,7 +30,7 @@ async function seedEnergyDataFromSleep(options) {
                 continue;
             const energyDate = (0, date_fns_1.setHours)(currentDate, pattern.hour);
             // Extract hour from the date (using UTC to ensure consistency)
-            const hourFromDate = energyDate.getUTCHours();
+            const hourFromDate = pattern.hour;
             console.log('this is hourFromDate', hourFromDate);
             // Add some random variation to make it more realistic
             const variation = (Math.random() - 0.5) * 0.2; // ±10% variation

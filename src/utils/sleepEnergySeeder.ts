@@ -46,7 +46,7 @@ export async function seedEnergyDataFromSleep(options: SeedEnergyOptions): Promi
       const energyDate = setHours(currentDate, pattern.hour);
       
       // Extract hour from the date (using UTC to ensure consistency)
-      const hourFromDate = energyDate.getUTCHours();
+      const hourFromDate = pattern.hour;
       console.log('this is hourFromDate', hourFromDate);
       
       // Add some random variation to make it more realistic

@@ -133,7 +133,12 @@ function determineTargetDate(task) {
         return today;
     }
     const hasDeadline = task.endTime;
-    if (hasDeadline) {
+    if (hasDeadline && task.startTime) {
+        const deadlineBasedDate = calculateDeadlineBasedDate(task.endTime);
+        return task.startTime;
+    }
+    const hasDeadlineonly = task.endTime;
+    if (hasDeadlineonly) {
         const deadlineBasedDate = calculateDeadlineBasedDate(task.endTime);
         return deadlineBasedDate;
     }
@@ -361,6 +366,8 @@ function mapPatternToSlot(targetDate) {
             .utc() // Convert back to UTC
             .toDate(); // Get JavaScript Date
         const slotEndTime = (0, date_fns_1.addMinutes)(slotStartTime, slotDurationMinutes);
+        console.log("slotStartTime", slotStartTime);
+        console.log("slotEndTime", slotEndTime);
         return {
             startTime: slotStartTime,
             endTime: slotEndTime,
