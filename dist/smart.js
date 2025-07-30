@@ -352,15 +352,19 @@ function mapPatternToSlot(targetDate) {
     return (pattern) => {
         const slotDurationMinutes = 60;
         console.log("targetDate", targetDate);
-        // Use UTC methods to ensure consistent behavior across environments
-        const year = targetDate.getUTCFullYear();
-        const month = targetDate.getUTCMonth();
-        const day = targetDate.getUTCDate();
-        console.log('utc date', { year, month, day });
-        // Create start time in UTC with the specific hour
-        const slotStartTime = new Date(targetDate.getTime() + (pattern.hour * 60 * 60 * 1000));
-        console.log("slotStartTime", slotStartTime);
-        const slotEndTime = (0, date_fns_1.addMinutes)(slotStartTime, 60);
+        console.log("targetDate", targetDate.toISOString());
+        // Step 1: Convert targetDate to milliseconds
+        const targetDateMs = targetDate.getTime();
+        // Step 2: Convert pattern.hour to milliseconds
+        const patternHourMs = pattern.hour * 60 * 60 * 1000;
+        // Step 3: Add them together
+        const combinedMs = targetDateMs + patternHourMs;
+        // Step 4: Convert back to Date (UTC)
+        const slotStartTime = new Date(combinedMs);
+        console.log("pattern.hour", pattern.hour);
+        console.log("calculated slotStartTime", slotStartTime.toISOString());
+        const slotEndTime = (0, date_fns_1.addMinutes)(slotStartTime, slotDurationMinutes);
+        console.log("slotEndTime", slotEndTime.toISOString());
         return {
             startTime: slotStartTime,
             endTime: slotEndTime,
