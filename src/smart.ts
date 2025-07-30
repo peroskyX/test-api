@@ -546,11 +546,16 @@ function mapPatternToSlot(targetDate: Date) {
 
     console.log("targetDate", targetDate);
 
-    const slotHour = setMinutes(targetDate, 0);
-    console.log("slotHour", slotHour);
+    // Use UTC methods to ensure consistent behavior across environments
+    const year = targetDate.getUTCFullYear();
+    const month = targetDate.getUTCMonth();
+    const day = targetDate.getUTCDate();
+    console.log('utc date', {year, month, day})
     
-    const slotStartTime = setHours(slotHour, pattern.hour);
+    // Create start time in UTC with the specific hour
+    const slotStartTime = new Date(Date.UTC(year, month, day, pattern.hour, 0, 0, 0));
     console.log("slotStartTime", slotStartTime);
+    
     const slotEndTime = addMinutes(slotStartTime, slotDurationMinutes);
     console.log("slotEndTime", slotEndTime);
 
