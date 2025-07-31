@@ -3,7 +3,6 @@ import { Router, Request, Response } from 'express';
 import { Task, ScheduleItem } from '../models';
 import { SmartSchedulingService } from '../services/smartSchedulingService';
 import { protect } from '../middleware/authMiddleware';
-import { processTaskDeadline } from '../utills/deadlineUtils';
 
 export const taskRoutes: Router = Router();
 const schedulingService = new SmartSchedulingService();
@@ -15,7 +14,7 @@ taskRoutes.use(protect);
 taskRoutes.post('/', async (req: Request, res: Response) => {
   try {
     // Ensure the task belongs to the authenticated user
-    const processedTaskData = processTaskDeadline(req.body);
+    const processedTaskData = req.body;
     
     // Ensure the task belongs to the authenticated user
     const taskData = {
@@ -92,7 +91,7 @@ taskRoutes.put('/:id', async (req: Request, res: Response) => {
     }
     
     // Process deadline logic for updates
-    const processedUpdates = processTaskDeadline(req.body);
+    const processedUpdates = req.body;
     
     // Prevent changing the userId
     delete processedUpdates.userId;
