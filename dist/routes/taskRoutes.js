@@ -6,7 +6,6 @@ const express_1 = require("express");
 const models_1 = require("../models");
 const smartSchedulingService_1 = require("../services/smartSchedulingService");
 const authMiddleware_1 = require("../middleware/authMiddleware");
-const deadlineUtils_1 = require("../utills/deadlineUtils");
 exports.taskRoutes = (0, express_1.Router)();
 const schedulingService = new smartSchedulingService_1.SmartSchedulingService();
 // Apply protection middleware to all task routes
@@ -15,7 +14,7 @@ exports.taskRoutes.use(authMiddleware_1.protect);
 exports.taskRoutes.post('/', async (req, res) => {
     try {
         // Ensure the task belongs to the authenticated user
-        const processedTaskData = (0, deadlineUtils_1.processTaskDeadline)(req.body);
+        const processedTaskData = req.body;
         // Ensure the task belongs to the authenticated user
         const taskData = {
             ...processedTaskData,
@@ -89,7 +88,7 @@ exports.taskRoutes.put('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Task not found' });
         }
         // Process deadline logic for updates
-        const processedUpdates = (0, deadlineUtils_1.processTaskDeadline)(req.body);
+        const processedUpdates = req.body;
         // Prevent changing the userId
         delete processedUpdates.userId;
         console.log('[Task Update] Original updates:', {
