@@ -163,7 +163,7 @@ class SmartSchedulingService {
             isToday: strategy.isToday
         });
         // Get schedule items
-        const schedule = await this.getScheduleItems(userId, targetDate);
+        const schedule = await this.getScheduleItems(userId, targetDate, task);
         console.log('[buildSchedulingContext] Schedule items:', schedule.length);
         // Get today's energy forecast if scheduling for today
         let todayEnergyForecast;
@@ -202,12 +202,13 @@ class SmartSchedulingService {
     /**
      * Get schedule items for a user
      */
-    async getScheduleItems(userId, targetDate) {
+    async getScheduleItems(userId, targetDate, task) {
         const query = { userId };
         if (targetDate) {
+            task.endTime;
             // Get items for the specific day and a few days around it
             console.log("targetDate", targetDate);
-            const endOfSearchWindow = (0, date_fns_1.addDays)(targetDate, 7);
+            const endOfSearchWindow = task.endTime ? task.endTime : (0, date_fns_1.addDays)(targetDate, 7);
             console.log("endOfSearchWindow", endOfSearchWindow);
             query.startTime = { $gte: targetDate, $lt: endOfSearchWindow };
             console.log("query", query);
