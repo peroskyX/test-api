@@ -1,10 +1,10 @@
-// src/services/smartSchedulingService.ts - FIXED VERSION
-import { addDays, startOfDay, setHours, setMinutes, addMinutes } from 'date-fns';
+// src/services/smartSchedulingService.ts - UPDATED VERSION
+import { addDays, startOfDay, setHours, setMinutes, addMinutes, subHours, isAfter, isBefore, differenceInHours } from 'date-fns';
 import { Task, Energy, ScheduleItem, HistoricalEnergyPattern, ITask, IEnergy, IScheduleItem, IHistoricalEnergyPattern, User } from '../models';
 import * as SmartScheduling from '../smart';
 import { TAG, TaskSelect, EnergySelect, ScheduleItem as SmartScheduleItem, SchedulingContext, TaskBody } from '../smart';
 import dayjs = require('dayjs');
-import { NotificationService } from './notificationService';
+import { NotificationService, NotificationType } from './notificationService';
 
 export class SmartSchedulingService {
   private notificationService: NotificationService;
@@ -17,9 +17,16 @@ export class SmartSchedulingService {
     console.log('[SmartSchedulingService] Creating task with data:', {
       title: taskData.title,
       startTime: taskData.startTime,
+      endTime: taskData.endTime,
+      estimatedDuration: taskData.estimatedDuration,
       isAutoSchedule: taskData.isAutoSchedule,
-      tag: taskData.tag
+      tag: taskData.tag,
+      priority: taskData.priority
     });
+
+    // ACCEPTANCE CRITERIA: Always use duration to calculate endTime
+    // If user provides startTime and endTime, ignore endTime and use duration
+
 
     const task = new Task(taskData);
     
@@ -43,17 +50,14 @@ export class SmartSchedulingService {
         task.startTime = scheduledTime.startTime;
         task.endTime = scheduledTime.endTime;
         
+        // Check if we need to displace other tasks
+        await this.handleTaskDisplacement(task);
+        
         // Save the task since we found an optimal time
         await task.save();
         
         // Add to schedule if task has a start time
         if (task.startTime && task.endTime) {
-          await this.addTaskToSchedule(task);
-        }
-
-        if (task.startTime && !task.endTime && task.estimatedDuration) {
-          const claculatedDuration = addMinutes(task.startTime, task.estimatedDuration);
-          task.endTime = claculatedDuration;
           await this.addTaskToSchedule(task);
         }
       } else {
@@ -64,17 +68,30 @@ export class SmartSchedulingService {
         return task; // Return task without saving
       }
     } else {
+      // For manually scheduled tasks (both start date and time provided)
+      if (task.startTime && task.endTime) {
+        if (taskData.startTime && taskData.estimatedDuration) {
+          const calculatedEndTime = addMinutes(new Date(taskData.startTime), taskData.estimatedDuration);
+          console.log('[SmartSchedulingService] Overriding endTime with duration calculation:', {
+            original: taskData.endTime,
+            calculated: calculatedEndTime
+          });
+          taskData.endTime = calculatedEndTime;
+          task.endTime = calculatedEndTime;
+        }
+      } 
+      const calculatedEndTime = addMinutes(new Date(taskData.startTime), taskData.estimatedDuration);
+      console.log('[SmartSchedulingService] Overriding endTime with duration calculation:', {
+        original: taskData.endTime,
+        calculated: calculatedEndTime
+      });
+      taskData.endTime = calculatedEndTime;
+      task.endTime = calculatedEndTime;
       // No scheduling needed, just save the task as is
       await task.save();
       
       // Add to schedule if task has a start time
       if (task.startTime && task.endTime) {
-        await this.addTaskToSchedule(task);
-      }
-
-      if (task.startTime && !task.endTime && task.estimatedDuration) {
-        const claculatedDuration = addMinutes(task.startTime, task.estimatedDuration);
-        task.endTime = claculatedDuration;
         await this.addTaskToSchedule(task);
       }
     }
@@ -88,16 +105,167 @@ export class SmartSchedulingService {
   }
 
   /**
+   * Check if a task can be scheduled in late wind-down period
+   * Only personal tasks with high priority and deadline today are allowed
+   */
+  private canScheduleInLateWindDown(task: ITask): boolean {
+    if (task.tag !== 'personal') return false;
+    if (task.priority !== 5) return false; // Priority 5 is highest
+    
+    // Check if deadline is today
+    if (!task.endTime) return false;
+    const today = startOfDay(new Date());
+    const tomorrow = addDays(today, 1);
+    const deadline = new Date(task.endTime);
+    
+    return deadline >= today && deadline < tomorrow;
+  }
+
+  /**
+   * Check if a time falls within the late wind-down period (2 hours before bedtime)
+   */
+  private async isInLateWindDownPeriod(time: Date, userId: string): Promise<boolean> {
+    const user = await User.findById(userId).select('sleepSchedule');
+    if (!user?.sleepSchedule) return false;
+    
+    const { bedtime } = user.sleepSchedule;
+    const hour = time.getHours();
+    
+    // Calculate 2 hours before bedtime
+    let lateWindDownStart = bedtime - 2;
+    if (lateWindDownStart < 0) lateWindDownStart += 24;
+    
+    // Check if hour falls in late wind-down period
+    if (bedtime >= 2) {
+      // Normal case: bedtime is 2 or later
+      return hour >= lateWindDownStart && hour < bedtime;
+    } else {
+      // Cross-midnight case
+      return hour >= lateWindDownStart || hour < bedtime;
+    }
+  }
+
+  /**
+   * Check if a time falls within actual sleep hours (bedtime to wake time)
+   */
+  private async isInSleepHours(time: Date, userId: string): Promise<boolean> {
+    const user = await User.findById(userId).select('sleepSchedule');
+    if (!user?.sleepSchedule) return false;
+    
+    const { bedtime, wakeHour } = user.sleepSchedule;
+    const hour = time.getHours();
+    
+    // Check if hour falls during sleep time
+    if (bedtime < wakeHour) {
+      // Sleep doesn't cross midnight (e.g., bed at 8 AM, wake at 4 PM - unusual but possible)
+      return hour >= bedtime && hour < wakeHour;
+    } else {
+      // Sleep crosses midnight (normal case: e.g., bed at 11 PM, wake at 7 AM)
+      return hour >= bedtime || hour < wakeHour;
+    }
+  }
+
+  /**
+   * Handle task displacement when a higher priority task needs the slot
+   */
+  private async handleTaskDisplacement(newTask: ITask): Promise<void> {
+    if (!newTask.startTime || !newTask.endTime) return;
+    
+    // Find conflicting smart-scheduled tasks
+    const conflictingTasks = await Task.find({
+      userId: newTask.userId,
+      isAutoSchedule: true,
+      _id: { $ne: newTask._id },
+      startTime: { $lt: newTask.endTime },
+      endTime: { $gt: newTask.startTime },
+      status: 'pending'
+    });
+    
+    for (const existingTask of conflictingTasks) {
+      const shouldDisplace = this.shouldDisplaceTask(newTask, existingTask);
+      
+      if (shouldDisplace) {
+        console.log('[SmartSchedulingService] Displacing task:', existingTask.title);
+        
+        // Find new time for displaced task
+        const taskSelect = this.convertToTaskSelect(existingTask);
+        const newTime = await this.findOptimalTimeForTask(taskSelect, existingTask.userId, 0, [newTask._id?.toString() || '']);
+        
+        if (newTime) {
+          existingTask.startTime = newTime.startTime;
+          existingTask.endTime = newTime.endTime;
+          await existingTask.save();
+          
+          // Update schedule item
+          await ScheduleItem.findOneAndUpdate(
+            { taskId: existingTask._id?.toString() },
+            {
+              startTime: existingTask.startTime,
+              endTime: existingTask.endTime
+            }
+          );
+          
+          // Send notification about displacement
+          await this.notificationService.sendNotification(
+            NotificationType.TASK_RESCHEDULED,
+            existingTask.userId,
+            {
+              taskTitle: existingTask.title,
+              oldTime: { startTime: existingTask.startTime, endTime: existingTask.endTime },
+              newTime: { startTime: newTime.startTime, endTime: newTime.endTime },
+              reason: `Displaced by higher priority task: ${newTask.title}`
+            }
+          );
+        } else {
+          // Could not find alternative time for displaced task
+          await this.notificationService.sendNotification(
+            NotificationType.NO_OPTIMAL_TIME,
+            existingTask.userId,
+            {
+              taskTitle: existingTask.title,
+              reason: `Displaced by ${newTask.title} but no alternative slot available`
+            }
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Determine if a new task should displace an existing task
+   */
+  private shouldDisplaceTask(newTask: ITask, existingTask: ITask): boolean {
+    // Higher priority wins
+    if (newTask.priority > existingTask.priority) return true;
+    
+    // Earlier deadline wins (if same priority)
+    if (newTask.priority === existingTask.priority) {
+      if (newTask.endTime && existingTask.endTime) {
+        return new Date(newTask.endTime) < new Date(existingTask.endTime);
+      }
+    }
+    
+    return false;
+  }
+
+  /**
    * Find optimal time for a task based on energy and schedule
    */
   async findOptimalTimeForTask(
     task: TaskSelect,
     userId: string,
-    daysToLookAhead: number = 0
+    daysToLookAhead: number = 0,
+    excludeTaskIds: string[] = []
   ): Promise<{ startTime: Date; endTime: Date } | null> {
     try {
+      // Check if we've exceeded the scheduling window (6 days for planner)
+      if (daysToLookAhead > 6) {
+        console.log('[findOptimalTimeForTask] Exceeded 6-day planner window');
+        return null;
+      }
+      
       // First try with current target date
-      const context = await this.buildSchedulingContext(task, userId);
+      const context = await this.buildSchedulingContext(task, userId, excludeTaskIds);
       console.log('[findOptimalTimeForTask] Built context:', {
         schedulingStrategy: context.schedulingStrategy,
         targetDate: context.targetDate,
@@ -113,16 +281,38 @@ export class SmartSchedulingService {
       console.log('[findOptimalTimeForTask] Task requirements:', {
         tag: task.tag,
         duration: taskDuration,
-        energyRequirements
+        energyRequirements,
+        priority: task.priority
       });
       
-      const availableSlots = SmartScheduling.getAvailableSlotsForContext(
+      // Get user's sleep schedule for late wind-down filtering
+      const user = await User.findById(userId).select('sleepSchedule');
+      
+      let availableSlots = SmartScheduling.getAvailableSlotsForContext(
         context,
         taskDuration,
-        energyRequirements
+        energyRequirements,
+        task.endTime
       );
       
-      console.log('[findOptimalTimeForTask] Available slots:', availableSlots.length);
+      // Filter out late wind-down period slots (2 hours before bedtime)
+      if (user?.sleepSchedule) {
+        availableSlots = await this.filterLateWindDownSlots(
+          availableSlots,
+          user.sleepSchedule,
+          task
+        );
+      }
+      
+      // Filter out sleep hour slots (bedtime to wake time)
+      if (user?.sleepSchedule) {
+        availableSlots = await this.filterSleepHourSlots(
+          availableSlots,
+          user.sleepSchedule
+        );
+      }
+      
+      console.log('[findOptimalTimeForTask] Available slots after filtering:', availableSlots.length);
       if (availableSlots.length > 0) {
         console.log('[findOptimalTimeForTask] First few slots:', availableSlots.slice(0, 3).map(s => ({
           time: s.startTime,
@@ -137,7 +327,6 @@ export class SmartSchedulingService {
         const nextDay = task.startTime ? addDays(task.startTime, 1) : addDays(new Date(), 1);
         console.log('[findOptimalTimeForTask] Next day:', nextDay);
         console.log('[findOptimalTimeForTask] Task deadline:', task.endTime);
-        console.log('[findOptimalTimeForTask] Next day start:', task.startTime);
         const nextDayStart = startOfDay(nextDay);
         
         // Don't look ahead if there's a deadline and the next day would exceed it
@@ -150,26 +339,31 @@ export class SmartSchedulingService {
         }
         
         // If no slots found and we haven't looked too far ahead, try the next day
-        if (daysToLookAhead < 7) { // Limit to 7 days of looking ahead to prevent excessive recursion
+        if (daysToLookAhead < 6) { // Limit to 6 days for planner
           console.log(`[findOptimalTimeForTask] Looking ahead to day ${daysToLookAhead + 1}`);
           
           // Create a modified task with target date shifted to the next day
           const nextDayTask = { ...task };
-          
-          // Set the start time to the next day
           nextDayTask.startTime = nextDayStart;
-          console.log('[findOptimalTimeForTask] Next day task:', nextDayTask);
           
           // Recursively call this function with the incremented daysToLookAhead counter
-          return this.findOptimalTimeForTask(nextDayTask, userId, daysToLookAhead + 1);
+          return this.findOptimalTimeForTask(nextDayTask, userId, daysToLookAhead + 1, excludeTaskIds);
         }
         
-        console.log('[findOptimalTimeForTask] Reached maximum days to look ahead, no slots found');
+        console.log('[findOptimalTimeForTask] Reached maximum days to look ahead (6 days), no slots found');
         return null;
       }
       
-      // Sort slots by energy level and pick the best one
-      const sortedSlots = availableSlots.sort((a, b) => b.energyLevel - a.energyLevel);
+      // ACCEPTANCE CRITERIA: Optimize for best energy match within the window
+      // Sort slots by energy level (descending) and then by time (ascending)
+      const sortedSlots = availableSlots.sort((a, b) => {
+        // First sort by energy level (higher is better)
+        const energyDiff = b.energyLevel - a.energyLevel;
+        if (Math.abs(energyDiff) > 0.1) return energyDiff;
+        
+        // If energy levels are similar, prefer earlier times
+        return a.startTime.getTime() - b.startTime.getTime();
+      });
 
       const bestSlot = sortedSlots[0];
       
@@ -190,9 +384,87 @@ export class SmartSchedulingService {
   }
 
   /**
+   * Filter out slots that fall in the late wind-down period
+   */
+  private async filterLateWindDownSlots(
+    slots: SmartScheduling.EnergySlot[],
+    sleepSchedule: { bedtime: number; wakeHour: number },
+    task: TaskSelect
+  ): Promise<SmartScheduling.EnergySlot[]> {
+    const { bedtime } = sleepSchedule;
+    
+    // Calculate 2 hours before bedtime
+    let lateWindDownStart = bedtime - 2;
+    if (lateWindDownStart < 0) lateWindDownStart += 24;
+    
+    return slots.filter(slot => {
+      const hour = slot.startTime.getHours();
+      
+      // Check if slot is in late wind-down period
+      let isInLateWindDown = false;
+      if (bedtime >= 2) {
+        // Normal case: bedtime is 2 or later
+        isInLateWindDown = hour >= lateWindDownStart && hour < bedtime;
+      } else {
+        // Cross-midnight case
+        isInLateWindDown = hour >= lateWindDownStart || hour < bedtime;
+      }
+      
+      // If in late wind-down, only allow if task meets special criteria
+      if (isInLateWindDown) {
+        // Only personal tasks with high priority and deadline today
+        if (task.tag !== 'personal') return false;
+        if (task.priority !== 5) return false;
+        
+        // Check if deadline is today
+        if (!task.endTime) return false;
+        const today = startOfDay(new Date());
+        const tomorrow = addDays(today, 1);
+        const deadline = new Date(task.endTime);
+        
+        const isDeadlineToday = deadline >= today && deadline < tomorrow;
+        return isDeadlineToday;
+      }
+      
+      return true;
+    });
+  }
+
+  /**
+   * Filter out slots that fall during sleep hours (bedtime to wake time)
+   */
+  private async filterSleepHourSlots(
+    slots: SmartScheduling.EnergySlot[],
+    sleepSchedule: { bedtime: number; wakeHour: number }
+  ): Promise<SmartScheduling.EnergySlot[]> {
+    const { bedtime, wakeHour } = sleepSchedule;
+    
+    return slots.filter(slot => {
+      const hour = slot.startTime.getHours();
+      
+      // Check if hour falls during sleep time
+      let isInSleepHours = false;
+      if (bedtime < wakeHour) {
+        // Sleep doesn't cross midnight (e.g., bed at 8 AM, wake at 4 PM - unusual but possible)
+        isInSleepHours = hour >= bedtime && hour < wakeHour;
+      } else {
+        // Sleep crosses midnight (normal case: e.g., bed at 11 PM, wake at 7 AM)
+        isInSleepHours = hour >= bedtime || hour < wakeHour;
+      }
+      
+      // Never allow scheduling during sleep hours
+      return !isInSleepHours;
+    });
+  }
+
+  /**
    * Build scheduling context for smart scheduling
    */
-  private async buildSchedulingContext(task: TaskSelect, userId: string): Promise<SchedulingContext> {
+  private async buildSchedulingContext(
+    task: TaskSelect, 
+    userId: string,
+    excludeTaskIds: string[] = []
+  ): Promise<SchedulingContext> {
     const targetDate = SmartScheduling.determineTargetDate(task);
     const strategy = SmartScheduling.determineSchedulingStrategy(targetDate);
     console.log('[buildSchedulingContext] Strategy:', {
@@ -201,9 +473,9 @@ export class SmartSchedulingService {
       isToday: strategy.isToday
     });
     
-    // Get schedule items
-    const schedule = await this.getScheduleItems(userId, targetDate, task);
-    console.log('[buildSchedulingContext] Schedule items:', schedule.length);
+    // Get schedule items (with buffer consideration)
+    const schedule = await this.getScheduleItemsWithBuffer(userId, targetDate, task, excludeTaskIds);
+    console.log('[buildSchedulingContext] Schedule items with buffer:', schedule.length);
     
     // Get today's energy forecast if scheduling for today
     let todayEnergyForecast: EnergySelect[] | undefined;
@@ -224,12 +496,9 @@ export class SmartSchedulingService {
       const user = await User.findById(userId).select('sleepSchedule chronotype');
       
       if (user?.sleepSchedule) {
-        console.log('[buildSchedulingContext] Using first default patterns');
+        console.log('[buildSchedulingContext] Using default patterns based on sleep schedule');
         // Generate patterns based on sleep schedule
-        historicalPatterns = this.getDefaultEnergyPatterns();
-        
-        // Note: We DON'T save these as HistoricalEnergyPatterns
-        // They're just used as defaults until real data is collected
+        historicalPatterns = this.getDefaultEnergyPatternsWithSleep(user.sleepSchedule);
       } else {
         console.log('[buildSchedulingContext] Using generic default patterns');
         historicalPatterns = this.getDefaultEnergyPatterns();
@@ -246,36 +515,74 @@ export class SmartSchedulingService {
   }
 
   /**
-   * Get schedule items for a user
+   * Get schedule items with 10-minute buffer for events
    */
-  private async getScheduleItems(userId: string, targetDate: Date | null, task: TaskSelect): Promise<SmartScheduleItem[]> {
+  private async getScheduleItemsWithBuffer(
+    userId: string, 
+    targetDate: Date | null, 
+    task: TaskSelect,
+    excludeTaskIds: string[] = []
+  ): Promise<SmartScheduleItem[]> {
     const query: any = { userId };
     
+    if (excludeTaskIds.length > 0) {
+      query.taskId = { $nin: excludeTaskIds };
+    }
+    
     if (targetDate) {
-      task.endTime
-      // Get items for the specific day and a few days around it
-      console.log("targetDate", targetDate);
-      console.log(query)
       const endOfSearchWindow = task.endTime ? task.endTime : addDays(targetDate, 7);
-      console.log("endOfSearchWindow", endOfSearchWindow);
       query.startTime = { $gte: targetDate, $lt: endOfSearchWindow };
-      console.log("query", query);
+      
+      console.log('[getScheduleItemsWithBuffer] Date-only query:', {
+        targetDate,
+        endOfSearchWindow,
+        query: JSON.stringify(query),
+        isDateOnly: task.startTime ? SmartScheduling.isDateOnlyWithoutTime(task.startTime) : false
+      });
     } else {
       // Get upcoming items
       const now = new Date();
       const futureLimit = addDays(now, 30);
       query.startTime = { $gte: now, $lt: futureLimit };
+      
+      console.log('[getScheduleItemsWithBuffer] No target date query:', {
+        now,
+        futureLimit,
+        query: JSON.stringify(query)
+      });
     }
     
     const items = await ScheduleItem.find(query).sort({ startTime: 1 });
-    console.log("items", items);
-    return items.map(item => ({
-      id: item.id,
-      title: item.title,
-      startTime: item.startTime,
-      endTime: item.endTime,
-      type: item.type
-    }));
+    
+    console.log('[getScheduleItemsWithBuffer] Found items:', {
+      count: items.length,
+      items: items.map(item => ({
+        title: item.title,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        type: item.type
+      }))
+    });
+    
+    // ACCEPTANCE CRITERIA: Add 10-minute buffer to events
+    return items.map(item => {
+      const scheduleItem: SmartScheduleItem = {
+        id: item.id,
+        title: item.title,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        type: item.type
+      };
+      
+      // Add buffer for events (meetings)
+      if (item.type === 'event') {
+        // Extend the event time by 10 minutes on each side for conflict checking
+        scheduleItem.startTime = addMinutes(item.startTime, -10);
+        scheduleItem.endTime = addMinutes(item.endTime, 10);
+      }
+      
+      return scheduleItem;
+    });
   }
 
   /**
@@ -399,7 +706,6 @@ export class SmartSchedulingService {
       title: task.title,
       startTime: task.startTime,
       endTime: task.endTime,
-
       type: 'task',
       taskId: task.id || task._id?.toString()
     });
@@ -414,6 +720,15 @@ export class SmartSchedulingService {
     
     const oldTaskSelect = this.convertToTaskSelect(task);
     
+    // ACCEPTANCE CRITERIA: Always use duration to calculate endTime
+    if (updates.startTime && updates.estimatedDuration) {
+      updates.endTime = addMinutes(new Date(updates.startTime), updates.estimatedDuration);
+      console.log('[updateTaskWithRescheduling] Overriding endTime with duration');
+    } else if (updates.estimatedDuration && task.startTime) {
+      // If only duration is updated, recalculate endTime
+      updates.endTime = addMinutes(task.startTime, updates.estimatedDuration);
+    }
+    
     // Apply updates
     Object.assign(task, updates);
     
@@ -423,6 +738,9 @@ export class SmartSchedulingService {
       if (scheduledTime) {
         task.startTime = scheduledTime.startTime;
         task.endTime = scheduledTime.endTime;
+        
+        // Check for and handle any displacements
+        await this.handleTaskDisplacement(task);
         
         // Update schedule item
         await ScheduleItem.findOneAndUpdate(
@@ -444,13 +762,20 @@ export class SmartSchedulingService {
    * Reschedule tasks when a new calendar event is added
    */
   async rescheduleTasksForNewEvent(event: IScheduleItem): Promise<void> {
-    // Find tasks that conflict with the new event
+    // Add buffer to event for conflict detection
+    const bufferedEventStart = addMinutes(event.startTime, -10);
+    const bufferedEventEnd = addMinutes(event.endTime, 10);
+    
+    // Find tasks that conflict with the new event (including buffer)
     const conflictingTasks = await Task.find({
       userId: event.userId,
       isAutoSchedule: true,
-      startTime: { $lt: event.endTime },
-      endTime: { $gt: event.startTime }
+      startTime: { $lt: bufferedEventEnd },
+      endTime: { $gt: bufferedEventStart },
+      status: 'pending'
     });
+    
+    console.log(`[rescheduleTasksForNewEvent] Found ${conflictingTasks.length} conflicting tasks`);
     
     // Reschedule each conflicting task
     for (const task of conflictingTasks) {
@@ -458,6 +783,7 @@ export class SmartSchedulingService {
       const newTime = await this.findOptimalTimeForTask(taskSelect, task.userId);
       
       if (newTime) {
+        const oldTime = { startTime: task.startTime, endTime: task.endTime };
         task.startTime = newTime.startTime;
         task.endTime = newTime.endTime;
         await task.save();
@@ -470,8 +796,77 @@ export class SmartSchedulingService {
             endTime: task.endTime
           }
         );
+        
+        // Send notification about rescheduling
+        await this.notificationService.sendNotification(
+          NotificationType.TASK_RESCHEDULED,
+          task.userId,
+          {
+            taskTitle: task.title,
+            oldTime,
+            newTime,
+            reason: `Calendar event "${event.title}" was added`
+          }
+        );
+      } else {
+        // Could not find alternative time
+        await this.notificationService.sendNotification(
+          NotificationType.NO_OPTIMAL_TIME,
+          task.userId,
+          {
+            taskTitle: task.title,
+            reason: `Conflicted with event "${event.title}" but no alternative slot available`
+          }
+        );
       }
     }
+  }
+
+  /**
+   * Get default energy patterns with sleep schedule consideration
+   */
+  getDefaultEnergyPatternsWithSleep(sleepSchedule: { bedtime: number; wakeHour: number }): SmartScheduling.HistoricalEnergyPattern[] {
+    const patterns: SmartScheduling.HistoricalEnergyPattern[] = [];
+    const { bedtime, wakeHour } = sleepSchedule;
+    
+    for (let hour = 0; hour < 24; hour++) {
+      let energy = 0.1; // Default sleep energy
+      
+      // Check if hour is during wake time
+      const isAwake = bedtime > wakeHour 
+        ? (hour >= wakeHour && hour < bedtime)
+        : (hour >= wakeHour || hour < bedtime);
+      
+      if (isAwake) {
+        // Calculate hours since wake
+        let hoursSinceWake = hour >= wakeHour ? hour - wakeHour : (24 - wakeHour + hour);
+        const awakeHours = bedtime > wakeHour ? bedtime - wakeHour : (24 - wakeHour + bedtime);
+        const relativeTime = hoursSinceWake / awakeHours;
+        
+        // Generate energy based on relative time in wake period
+        if (relativeTime < 0.1) {
+          energy = 0.3 + (relativeTime * 5); // Morning rise
+        } else if (relativeTime < 0.35) {
+          energy = 0.8 + (Math.sin((relativeTime - 0.1) * 4) * 0.1); // Morning peak
+        } else if (relativeTime < 0.6) {
+          energy = 0.5 + (Math.random() * 0.2); // Midday dip
+        } else if (relativeTime < 0.75) {
+          energy = 0.7 + (Math.random() * 0.1); // Afternoon rebound
+        } else {
+          // Wind down - lower energy in last 2 hours before bed
+          const hoursBeforeBed = bedtime - hour;
+          if (hoursBeforeBed <= 2 && hoursBeforeBed > 0) {
+            energy = 0.2 + (Math.random() * 0.1); // Late wind-down (very low)
+          } else {
+            energy = 0.4 + (Math.random() * 0.2); // Regular wind down
+          }
+        }
+      }
+      
+      patterns.push({ hour, averageEnergy: Math.max(0.1, Math.min(1.0, energy)) });
+    }
+    
+    return patterns;
   }
 
   /**
@@ -480,6 +875,12 @@ export class SmartSchedulingService {
   getDefaultEnergyPatterns(): SmartScheduling.HistoricalEnergyPattern[] {
     console.log('[getDefaultEnergyPatterns] Using default patterns');
     return [
+      { hour: 0, averageEnergy: 0.1 },   // Sleep
+      { hour: 1, averageEnergy: 0.1 },   // Sleep
+      { hour: 2, averageEnergy: 0.1 },   // Sleep
+      { hour: 3, averageEnergy: 0.1 },   // Sleep
+      { hour: 4, averageEnergy: 0.1 },   // Sleep
+      { hour: 5, averageEnergy: 0.1 },   // Sleep
       { hour: 6, averageEnergy: 0.3 },   // Early morning
       { hour: 7, averageEnergy: 0.5 },   // Morning rise
       { hour: 8, averageEnergy: 0.7 },   // Morning
@@ -495,73 +896,9 @@ export class SmartSchedulingService {
       { hour: 18, averageEnergy: 0.6 },  // Early evening
       { hour: 19, averageEnergy: 0.5 },  // Evening
       { hour: 20, averageEnergy: 0.4 },  // Wind down
-      { hour: 21, averageEnergy: 0.3 },  // Late evening
-      { hour: 22, averageEnergy: 0.2 },  // Pre-sleep
+      { hour: 21, averageEnergy: 0.3 },  // Late evening (late wind-down starts here for 11pm bedtime)
+      { hour: 22, averageEnergy: 0.2 },  // Pre-sleep (late wind-down)
+      { hour: 23, averageEnergy: 0.1 },  // Sleep
     ];
-  }
-
-  /**
-   * Generate default energy forecast data (comprehensive format)
-   */
-  generateDefaultEnergyForecast(userId: string, targetDate?: Date): { status: string; value: { forecast: any[] } } {
-    const date = targetDate || new Date();
-    const dateString = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
-    
-    const energyData = [
-      // Sleep phase (0-6)
-      { hour: 0, energyLevel: 0.09, energyStage: "sleep_phase", mood: "tired" },
-      { hour: 1, energyLevel: 0.07, energyStage: "sleep_phase", mood: "tired" },
-      { hour: 2, energyLevel: 0.08, energyStage: "sleep_phase", mood: "tired" },
-      { hour: 3, energyLevel: 0.04, energyStage: "sleep_phase", mood: "tired" },
-      { hour: 4, energyLevel: 0.08, energyStage: "sleep_phase", mood: "tired" },
-      { hour: 5, energyLevel: 0.04, energyStage: "sleep_phase", mood: "tired" },
-      { hour: 6, energyLevel: 0.04, energyStage: "sleep_phase", mood: "tired" },
-      
-      // Morning rise (7-8)
-      { hour: 7, energyLevel: 0.32, energyStage: "morning_rise", mood: "relaxed" },
-      { hour: 8, energyLevel: 0.5, energyStage: "morning_rise", mood: "calm" },
-      
-      // Morning peak (9-11)
-      { hour: 9, energyLevel: 0.88, energyStage: "morning_peak", mood: "motivated" },
-      { hour: 10, energyLevel: 0.86, energyStage: "morning_peak", mood: "motivated" },
-      { hour: 11, energyLevel: 0.97, energyStage: "morning_peak", mood: "motivated" },
-      
-      // Midday dip (12-14)
-      { hour: 12, energyLevel: 0.28, energyStage: "midday_dip", mood: "relaxed" },
-      { hour: 13, energyLevel: 0.28, energyStage: "midday_dip", mood: "relaxed" },
-      { hour: 14, energyLevel: 0.3, energyStage: "midday_dip", mood: "relaxed" },
-      
-      // Afternoon rebound (15-16)
-      { hour: 15, energyLevel: 0.62, energyStage: "afternoon_rebound", mood: "focused" },
-      { hour: 16, energyLevel: 0.7, energyStage: "afternoon_rebound", mood: "focused" },
-      
-      // Wind down (17-22)
-      { hour: 17, energyLevel: 0.13, energyStage: "wind_down", mood: "tired" },
-      { hour: 18, energyLevel: 0.12, energyStage: "wind_down", mood: "tired" },
-      { hour: 19, energyLevel: 0.26, energyStage: "wind_down", mood: "relaxed" },
-      { hour: 20, energyLevel: 0.2, energyStage: "wind_down", mood: "relaxed" },
-      { hour: 21, energyLevel: 0.16, energyStage: "wind_down", mood: "tired" },
-      { hour: 22, energyLevel: 0.21, energyStage: "wind_down", mood: "relaxed" },
-      
-      // Sleep phase (23)
-      { hour: 23, energyLevel: 0.06, energyStage: "sleep_phase", mood: "tired" }
-    ];
-
-    const forecast = energyData.map(data => ({
-      date: dateString,
-      energyLevel: data.energyLevel,
-      energyStage: data.energyStage,
-      hasManualCheckIn: false,
-      hour: data.hour,
-      mood: data.mood,
-      userId: userId
-    }));
-
-    return {
-      status: "success",
-      value: {
-        forecast
-      }
-    };
   }
 }
