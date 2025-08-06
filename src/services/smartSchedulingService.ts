@@ -255,6 +255,7 @@ export class SmartSchedulingService {
       task.endTime
       // Get items for the specific day and a few days around it
       console.log("targetDate", targetDate);
+      console.log(query)
       const endOfSearchWindow = task.endTime ? task.endTime : addDays(targetDate, 7);
       console.log("endOfSearchWindow", endOfSearchWindow);
       query.startTime = { $gte: targetDate, $lt: endOfSearchWindow };
@@ -497,5 +498,70 @@ export class SmartSchedulingService {
       { hour: 21, averageEnergy: 0.3 },  // Late evening
       { hour: 22, averageEnergy: 0.2 },  // Pre-sleep
     ];
+  }
+
+  /**
+   * Generate default energy forecast data (comprehensive format)
+   */
+  generateDefaultEnergyForecast(userId: string, targetDate?: Date): { status: string; value: { forecast: any[] } } {
+    const date = targetDate || new Date();
+    const dateString = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
+    
+    const energyData = [
+      // Sleep phase (0-6)
+      { hour: 0, energyLevel: 0.09, energyStage: "sleep_phase", mood: "tired" },
+      { hour: 1, energyLevel: 0.07, energyStage: "sleep_phase", mood: "tired" },
+      { hour: 2, energyLevel: 0.08, energyStage: "sleep_phase", mood: "tired" },
+      { hour: 3, energyLevel: 0.04, energyStage: "sleep_phase", mood: "tired" },
+      { hour: 4, energyLevel: 0.08, energyStage: "sleep_phase", mood: "tired" },
+      { hour: 5, energyLevel: 0.04, energyStage: "sleep_phase", mood: "tired" },
+      { hour: 6, energyLevel: 0.04, energyStage: "sleep_phase", mood: "tired" },
+      
+      // Morning rise (7-8)
+      { hour: 7, energyLevel: 0.32, energyStage: "morning_rise", mood: "relaxed" },
+      { hour: 8, energyLevel: 0.5, energyStage: "morning_rise", mood: "calm" },
+      
+      // Morning peak (9-11)
+      { hour: 9, energyLevel: 0.88, energyStage: "morning_peak", mood: "motivated" },
+      { hour: 10, energyLevel: 0.86, energyStage: "morning_peak", mood: "motivated" },
+      { hour: 11, energyLevel: 0.97, energyStage: "morning_peak", mood: "motivated" },
+      
+      // Midday dip (12-14)
+      { hour: 12, energyLevel: 0.28, energyStage: "midday_dip", mood: "relaxed" },
+      { hour: 13, energyLevel: 0.28, energyStage: "midday_dip", mood: "relaxed" },
+      { hour: 14, energyLevel: 0.3, energyStage: "midday_dip", mood: "relaxed" },
+      
+      // Afternoon rebound (15-16)
+      { hour: 15, energyLevel: 0.62, energyStage: "afternoon_rebound", mood: "focused" },
+      { hour: 16, energyLevel: 0.7, energyStage: "afternoon_rebound", mood: "focused" },
+      
+      // Wind down (17-22)
+      { hour: 17, energyLevel: 0.13, energyStage: "wind_down", mood: "tired" },
+      { hour: 18, energyLevel: 0.12, energyStage: "wind_down", mood: "tired" },
+      { hour: 19, energyLevel: 0.26, energyStage: "wind_down", mood: "relaxed" },
+      { hour: 20, energyLevel: 0.2, energyStage: "wind_down", mood: "relaxed" },
+      { hour: 21, energyLevel: 0.16, energyStage: "wind_down", mood: "tired" },
+      { hour: 22, energyLevel: 0.21, energyStage: "wind_down", mood: "relaxed" },
+      
+      // Sleep phase (23)
+      { hour: 23, energyLevel: 0.06, energyStage: "sleep_phase", mood: "tired" }
+    ];
+
+    const forecast = energyData.map(data => ({
+      date: dateString,
+      energyLevel: data.energyLevel,
+      energyStage: data.energyStage,
+      hasManualCheckIn: false,
+      hour: data.hour,
+      mood: data.mood,
+      userId: userId
+    }));
+
+    return {
+      status: "success",
+      value: {
+        forecast
+      }
+    };
   }
 }

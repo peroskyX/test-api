@@ -1,0 +1,13 @@
+there should be 
+
+when deadline is today and startdate today, it should schedule appropriately.
+
+when there is a startdate and starttime, it should use duration to calculate the endtime.
+
+
+
+
+no task in the late winddown 
+
+
+ask chris about the winddown phase, the one peace shared to him
