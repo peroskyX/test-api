@@ -68,29 +68,24 @@ export class SmartSchedulingService {
         return task; // Return task without saving
       }
     } else {
-      // For manually scheduled tasks (both start date and time provided)
-      if (task.startTime && task.endTime) {
-        if (taskData.startTime && taskData.estimatedDuration) {
-          const calculatedEndTime = addMinutes(new Date(taskData.startTime), taskData.estimatedDuration);
-          console.log('[SmartSchedulingService] Overriding endTime with duration calculation:', {
-            original: taskData.endTime,
-            calculated: calculatedEndTime
-          });
-          taskData.endTime = calculatedEndTime;
-          task.endTime = calculatedEndTime;
-        }
-      } 
-      const calculatedEndTime = addMinutes(new Date(taskData.startTime), taskData.estimatedDuration);
-      console.log('[SmartSchedulingService] Overriding endTime with duration calculation:', {
-        original: taskData.endTime,
-        calculated: calculatedEndTime
-      });
-      taskData.endTime = calculatedEndTime;
-      task.endTime = calculatedEndTime;
-      // No scheduling needed, just save the task as is
+      // For tasks that don't need smart scheduling (manual tasks or tasks with no dates)
+      console.log('[SmartSchedulingService] No smart scheduling needed');
+      
+      // ACCEPTANCE CRITERIA: Always use duration to calculate endTime when available
+      // This applies even to manual tasks that already have both startTime and endTime
+      if (task.startTime && taskData.estimatedDuration) {
+        const calculatedEndTime = addMinutes(new Date(taskData.startTime), taskData.estimatedDuration);
+        console.log('[SmartSchedulingService] Overriding endTime with duration calculation:', {
+          original: task.endTime,
+          calculated: calculatedEndTime
+        });
+        task.endTime = calculatedEndTime;
+      }
+      
+      // Save the task (whether it has dates or not)
       await task.save();
       
-      // Add to schedule if task has a start time
+      // Add to schedule only if task has both start and end times
       if (task.startTime && task.endTime) {
         await this.addTaskToSchedule(task);
       }
@@ -493,7 +488,7 @@ export class SmartSchedulingService {
       console.log('[buildSchedulingContext] No historical patterns found');
       
       // Check if user has a sleep schedule to generate defaults
-      const user = await User.findById(userId).select('sleepSchedule chronotype');
+      const user = await User.findById(userId).select('sleepSchedule');
       
       if (user?.sleepSchedule) {
         console.log('[buildSchedulingContext] Using default patterns based on sleep schedule');
