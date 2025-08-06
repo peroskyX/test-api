@@ -870,13 +870,13 @@ export class SmartSchedulingService {
   getDefaultEnergyPatterns(): SmartScheduling.HistoricalEnergyPattern[] {
     console.log('[getDefaultEnergyPatterns] Using default patterns');
     return [
-      { hour: 0, averageEnergy: 0.1 },   // Sleep
-      { hour: 1, averageEnergy: 0.1 },   // Sleep
-      { hour: 2, averageEnergy: 0.1 },   // Sleep
-      { hour: 3, averageEnergy: 0.1 },   // Sleep
-      { hour: 4, averageEnergy: 0.1 },   // Sleep
-      { hour: 5, averageEnergy: 0.1 },   // Sleep
-      { hour: 6, averageEnergy: 0.3 },   // Early morning
+      { hour: 0, averageEnergy: 0.01 },   // Sleep
+      { hour: 1, averageEnergy: 0.01 },   // Sleep
+      { hour: 2, averageEnergy: 0.01 },   // Sleep
+      { hour: 3, averageEnergy: 0.01 },   // Sleep
+      { hour: 4, averageEnergy: 0.01 },   // Sleep
+      { hour: 5, averageEnergy: 0.01 },   // Sleep
+      { hour: 6, averageEnergy: 0.26 },   // Early morning
       { hour: 7, averageEnergy: 0.5 },   // Morning rise
       { hour: 8, averageEnergy: 0.7 },   // Morning
       { hour: 9, averageEnergy: 0.85 },  // Morning peak
@@ -891,9 +891,9 @@ export class SmartSchedulingService {
       { hour: 18, averageEnergy: 0.6 },  // Early evening
       { hour: 19, averageEnergy: 0.5 },  // Evening
       { hour: 20, averageEnergy: 0.4 },  // Wind down
-      { hour: 21, averageEnergy: 0.3 },  // Late evening (late wind-down starts here for 11pm bedtime)
+      { hour: 21, averageEnergy: 0.26 },  // Late evening (late wind-down starts here for 11pm bedtime)
       { hour: 22, averageEnergy: 0.2 },  // Pre-sleep (late wind-down)
-      { hour: 23, averageEnergy: 0.1 },  // Sleep
+      { hour: 23, averageEnergy: 0.01 },  // Sleep
     ];
   }
 }
