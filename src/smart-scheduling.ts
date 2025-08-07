@@ -3,7 +3,7 @@
 
 const API_BASE_URL = 'http://localhost:3000/api';
 const USER_ID = 'test-user-123';
-const PROFILE_ID = 'test-profile-123';
+
 
 // Helper function to make API calls
 async function apiCall(method: string, endpoint: string, body?: any) {
@@ -85,7 +85,6 @@ async function testSmartScheduling() {
   const taskData = {
     title: 'Deep Work Session',
     userId: USER_ID,
-    profileId: PROFILE_ID,
     estimatedDuration: 60, // 1 hour
     priority: 4, // High priority
     tag: 'deep', // Requires high energy (0.7-1.0)
@@ -165,7 +164,6 @@ async function testPriorityBasedScheduling() {
   const highPriorityTask = await apiCall('POST', '/tasks', {
     title: 'Urgent Deep Work',
     userId: USER_ID,
-    profileId: PROFILE_ID,
     estimatedDuration: 60,
     priority: 5, // Highest priority
     tag: 'deep',
@@ -177,7 +175,6 @@ async function testPriorityBasedScheduling() {
   const mediumPriorityTask = await apiCall('POST', '/tasks', {
     title: 'Regular Admin Work',
     userId: USER_ID,
-    profileId: PROFILE_ID,
     estimatedDuration: 60,
     priority: 3, // Medium priority
     tag: 'admin',

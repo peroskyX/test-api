@@ -20,7 +20,6 @@ export interface ITask extends Document {
   endTime?: Date;
   actualStartTime?: Date;
   actualEndTime?: Date;
-  profileId: string;
   subtasks: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -43,7 +42,6 @@ const TaskSchema = new Schema<ITask>({
   endTime: { type: Date },
   actualStartTime: { type: Date },
   actualEndTime: { type: Date },
-  profileId: { type: String, required: true },
   subtasks: [{ type: String }]
 }, { timestamps: true });
 
