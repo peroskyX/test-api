@@ -13,6 +13,52 @@ export enum NotificationType {
 }
 
 /**
+ * Notification severity levels for UI styling
+ */
+export enum NotificationSeverity {
+  INFO = 'info',
+  WARNING = 'warning',
+  ERROR = 'error',
+  SUCCESS = 'success'
+}
+
+/**
+ * Action button for notifications
+ */
+export interface NotificationAction {
+  label: string;
+  action: string;
+  variant?: 'primary' | 'secondary' | 'danger';
+  data?: any;
+}
+
+/**
+ * Structured notification object for frontend consumption
+ */
+export interface NotificationMessage {
+  id: string;
+  type: NotificationType;
+  severity: NotificationSeverity;
+  title: string;
+  message: string;
+  timestamp: Date;
+  userId: string;
+  taskId?: string;
+  actions?: NotificationAction[];
+  metadata?: {
+    taskTitle?: string;
+    oldTime?: { startTime: Date; endTime: Date };
+    newTime?: { startTime: Date; endTime: Date };
+    deadline?: Date;
+    priority?: number;
+    tag?: string;
+    reason?: string;
+    displacedBy?: string;
+    hoursRemaining?: number;
+  };
+}
+
+/**
  * Service for handling notifications
  */
 export class NotificationService {
@@ -21,52 +67,251 @@ export class NotificationService {
    * @param type The type of notification
    * @param userId The user ID to send notification to
    * @param data Any additional data to include
-   * @returns A promise resolving to true if notification was sent successfully
+   * @returns A promise resolving to the notification message object
    */
   async sendNotification(
     type: NotificationType,
     userId: string,
     data: any = {}
-  ): Promise<boolean> {
+  ): Promise<NotificationMessage> {
     try {
       console.log(`[NotificationService] Sending notification of type ${type} to user ${userId}`);
       console.log('[NotificationService] Notification data:', data);
       
-      // In a real implementation, this would send to a notification service
-      // For now, we'll just log and return success
+      // Create structured notification message
+      const notification = this.createNotificationMessage(type, userId, data);
       
-      // Format notification message based on type
-      let message = '';
-      switch (type) {
-        case NotificationType.NO_OPTIMAL_TIME:
-          message = this.formatNoOptimalTimeMessage(data);
-          break;
-        case NotificationType.TASK_RESCHEDULED:
-          message = this.formatTaskRescheduledMessage(data);
-          break;
-        case NotificationType.TASK_DISPLACED:
-          message = this.formatTaskDisplacedMessage(data);
-          break;
-        case NotificationType.LATE_WIND_DOWN_CONFLICT:
-          message = this.formatLateWindDownMessage(data);
-          break;
-        case NotificationType.TASK_DEADLINE_APPROACHING:
-          message = this.formatDeadlineMessage(data);
-          break;
-        default:
-          message = 'Task notification';
-      }
-      
-      console.log('[NotificationService] Formatted message:', message);
+      console.log('[NotificationService] Created notification:', notification);
       
       // Here you would integrate with your actual notification system
-      // e.g., push notifications, email, in-app notifications, etc.
+      // e.g., save to database, send via WebSocket, push notifications, etc.
       
-      return true;
+      return notification;
     } catch (error) {
       console.error('[NotificationService] Error sending notification:', error);
-      return false;
+      throw error;
     }
+  }
+
+  /**
+   * Create a structured notification message
+   */
+  private createNotificationMessage(
+    type: NotificationType,
+    userId: string,
+    data: any
+  ): NotificationMessage {
+    const id = this.generateNotificationId();
+    const timestamp = new Date();
+
+    switch (type) {
+      case NotificationType.NO_OPTIMAL_TIME:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.WARNING,
+          title: 'Scheduling Conflict',
+          message: this.formatNoOptimalTimeMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Manual Schedule',
+              action: 'manual_schedule',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Adjust Priority',
+              action: 'adjust_priority',
+              variant: 'secondary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Dismiss',
+              action: 'dismiss',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            priority: data.priority,
+            tag: data.tag,
+            deadline: data.deadline,
+            reason: data.reason
+          }
+        };
+
+      case NotificationType.TASK_RESCHEDULED:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.INFO,
+          title: 'Task Rescheduled',
+          message: this.formatTaskRescheduledMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'View Task',
+              action: 'view_task',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Undo',
+              action: 'undo_reschedule',
+              variant: 'secondary',
+              data: { taskId: data.taskId, oldTime: data.oldTime }
+            },
+            {
+              label: 'Dismiss',
+              action: 'dismiss',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            oldTime: data.oldTime,
+            newTime: data.newTime,
+            reason: data.reason
+          }
+        };
+
+      case NotificationType.TASK_DISPLACED:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.WARNING,
+          title: 'Task Displaced',
+          message: this.formatTaskDisplacedMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'View New Time',
+              action: 'view_task',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Find Alternative',
+              action: 'reschedule_task',
+              variant: 'secondary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Dismiss',
+              action: 'dismiss',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            displacedBy: data.displacedBy,
+            newTime: data.newTime
+          }
+        };
+
+      case NotificationType.LATE_WIND_DOWN_CONFLICT:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.ERROR,
+          title: 'Sleep Schedule Conflict',
+          message: this.formatLateWindDownMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Schedule Earlier',
+              action: 'reschedule_earlier',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Manual Override',
+              action: 'manual_override',
+              variant: 'danger',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Dismiss',
+              action: 'dismiss',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle
+          }
+        };
+
+      case NotificationType.TASK_DEADLINE_APPROACHING:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.WARNING,
+          title: 'Deadline Approaching',
+          message: this.formatDeadlineMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Start Now',
+              action: 'start_task',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Extend Deadline',
+              action: 'extend_deadline',
+              variant: 'secondary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'Dismiss',
+              action: 'dismiss',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            deadline: data.deadline,
+            hoursRemaining: data.hoursRemaining
+          }
+        };
+
+      default:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.INFO,
+          title: 'Task Notification',
+          message: 'Task notification',
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Dismiss',
+              action: 'dismiss',
+              variant: 'secondary'
+            }
+          ]
+        };
+    }
+  }
+
+  /**
+   * Generate a unique notification ID
+   */
+  private generateNotificationId(): string {
+    return `notif_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
   /**
@@ -122,7 +367,7 @@ export class NotificationService {
   /**
    * Specifically handles the case when no optimal time is found for a task
    */
-  async notifyNoOptimalTime(task: ITask): Promise<boolean> {
+  async notifyNoOptimalTime(task: ITask): Promise<NotificationMessage> {
     return this.sendNotification(
       NotificationType.NO_OPTIMAL_TIME,
       task.userId,
@@ -143,7 +388,7 @@ export class NotificationService {
     displacedTask: ITask,
     displacingTask: ITask,
     newTime?: { startTime: Date; endTime: Date }
-  ): Promise<boolean> {
+  ): Promise<NotificationMessage> {
     return this.sendNotification(
       NotificationType.TASK_DISPLACED,
       displacedTask.userId,
@@ -159,7 +404,7 @@ export class NotificationService {
   /**
    * Notify when a task conflicts with late wind-down period
    */
-  async notifyLateWindDownConflict(task: ITask): Promise<boolean> {
+  async notifyLateWindDownConflict(task: ITask): Promise<NotificationMessage> {
     return this.sendNotification(
       NotificationType.LATE_WIND_DOWN_CONFLICT,
       task.userId,

@@ -4,7 +4,7 @@ import { Task, Energy, ScheduleItem, HistoricalEnergyPattern, ITask, IEnergy, IS
 import * as SmartScheduling from '../smart';
 import { TAG, TaskSelect, EnergySelect, ScheduleItem as SmartScheduleItem, SchedulingContext, TaskBody } from '../smart';
 import dayjs = require('dayjs');
-import { NotificationService, NotificationType } from './notificationService';
+import { NotificationService, NotificationType, NotificationMessage } from './notificationService';
 
 export class SmartSchedulingService {
   private notificationService: NotificationService;
@@ -61,11 +61,15 @@ export class SmartSchedulingService {
           await this.addTaskToSchedule(task);
         }
       } else {
-        console.log('[SmartSchedulingService] No optimal time found, sending notification');
-        // Send notification instead of saving the task
-        await this.notificationService.notifyNoOptimalTime(task);
-        // We don't save the task when no optimal time is found
-        return task; // Return task without saving
+        console.log('[SmartSchedulingService] No optimal time found for task');
+        
+        // Send notification about no optimal time found
+        const notification = await this.notificationService.notifyNoOptimalTime(task);
+        console.log('[SmartSchedulingService] Notification sent:', notification.id);
+        
+        // Do NOT save the task when no optimal time is found
+        // User must take action via notification (manual schedule, adjust priority, etc.)
+        throw new Error(`Could not schedule task "${task.title}": No optimal time slot available`);
       }
     } else {
       // For tasks that don't need smart scheduling (manual tasks or tasks with no dates)
@@ -119,7 +123,7 @@ export class SmartSchedulingService {
   /**
    * Check if a time falls within the late wind-down period (2 hours before bedtime)
    */
-  private async isInLateWindDownPeriod(time: Date, userId: string): Promise<boolean> {
+  private async isInLateWindDownPeriod(time: Date, userId: string, task: any): Promise<boolean> {
     const user = await User.findById(userId).select('sleepSchedule');
     if (!user?.sleepSchedule) return false;
     
@@ -131,13 +135,32 @@ export class SmartSchedulingService {
     if (lateWindDownStart < 0) lateWindDownStart += 24;
     
     // Check if hour falls in late wind-down period
+    let isInLateWindDown = false;
     if (bedtime >= 2) {
       // Normal case: bedtime is 2 or later
-      return hour >= lateWindDownStart && hour < bedtime;
+      isInLateWindDown = hour >= lateWindDownStart && hour < bedtime;
     } else {
       // Cross-midnight case
-      return hour >= lateWindDownStart || hour < bedtime;
+      isInLateWindDown = hour >= lateWindDownStart || hour < bedtime;
     }
+    
+    // If in late wind-down, only allow if task meets special criteria
+    if (isInLateWindDown) {
+      // Only personal tasks with high priority and deadline today
+      if (task.tag !== 'personal') return false;
+      if (task.priority !== 5) return false;
+      
+      // Check if deadline is today
+      if (!task.endTime) return false;
+      const today = startOfDay(new Date());
+      const tomorrow = addDays(today, 1);
+      const deadline = new Date(task.endTime);
+      
+      const isDeadlineToday = deadline >= today && deadline < tomorrow;
+      return isDeadlineToday;
+    }
+    
+    return true;
   }
 
   /**
@@ -151,13 +174,17 @@ export class SmartSchedulingService {
     const hour = time.getHours();
     
     // Check if hour falls during sleep time
+    let isInSleepHours = false;
     if (bedtime < wakeHour) {
       // Sleep doesn't cross midnight (e.g., bed at 8 AM, wake at 4 PM - unusual but possible)
-      return hour >= bedtime && hour < wakeHour;
+      isInSleepHours = hour >= bedtime && hour < wakeHour;
     } else {
       // Sleep crosses midnight (normal case: e.g., bed at 11 PM, wake at 7 AM)
-      return hour >= bedtime || hour < wakeHour;
+      isInSleepHours = hour >= bedtime || hour < wakeHour;
     }
+    
+    // Never allow scheduling during sleep hours
+    return !isInSleepHours;
   }
 
   /**
@@ -201,7 +228,7 @@ export class SmartSchedulingService {
           );
           
           // Send notification about displacement
-          await this.notificationService.sendNotification(
+          const notification = await this.notificationService.sendNotification(
             NotificationType.TASK_RESCHEDULED,
             existingTask.userId,
             {
@@ -211,9 +238,10 @@ export class SmartSchedulingService {
               reason: `Displaced by higher priority task: ${newTask.title}`
             }
           );
+          console.log('[SmartSchedulingService] Notification sent:', notification.id);
         } else {
           // Could not find alternative time for displaced task
-          await this.notificationService.sendNotification(
+          const notification = await this.notificationService.sendNotification(
             NotificationType.NO_OPTIMAL_TIME,
             existingTask.userId,
             {
@@ -221,6 +249,7 @@ export class SmartSchedulingService {
               reason: `Displaced by ${newTask.title} but no alternative slot available`
             }
           );
+          console.log('[SmartSchedulingService] Notification sent:', notification.id);
         }
       }
     }
@@ -404,7 +433,7 @@ export class SmartSchedulingService {
         // Cross-midnight case
         isInLateWindDown = hour >= lateWindDownStart || hour < bedtime;
       }
-      
+      console.log('[isInLateWindDownPeriod] Hour:', hour, 'Is in late wind-down:', isInLateWindDown);
       // If in late wind-down, only allow if task meets special criteria
       if (isInLateWindDown) {
         // Only personal tasks with high priority and deadline today
@@ -793,7 +822,7 @@ export class SmartSchedulingService {
         );
         
         // Send notification about rescheduling
-        await this.notificationService.sendNotification(
+        const notification = await this.notificationService.sendNotification(
           NotificationType.TASK_RESCHEDULED,
           task.userId,
           {
@@ -803,9 +832,10 @@ export class SmartSchedulingService {
             reason: `Calendar event "${event.title}" was added`
           }
         );
+        console.log('[rescheduleTasksForNewEvent] Notification sent:', notification.id);
       } else {
         // Could not find alternative time
-        await this.notificationService.sendNotification(
+        const notification = await this.notificationService.sendNotification(
           NotificationType.NO_OPTIMAL_TIME,
           task.userId,
           {
@@ -813,6 +843,7 @@ export class SmartSchedulingService {
             reason: `Conflicted with event "${event.title}" but no alternative slot available`
           }
         );
+        console.log('[rescheduleTasksForNewEvent] Notification sent:', notification.id);
       }
     }
   }
