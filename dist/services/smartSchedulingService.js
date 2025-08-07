@@ -262,12 +262,9 @@ class SmartSchedulingService {
             // Get user's sleep schedule for late wind-down filtering
             const user = await models_1.User.findById(userId).select('sleepSchedule');
             let availableSlots = SmartScheduling.getAvailableSlotsForContext(context, taskDuration, energyRequirements, task.endTime);
-            if (!user?.sleepSchedule) {
-                console.log('[removing wind_down_slots] User has no sleep schedule');
-            }
+            console.log('[removing wind_down_slots] Available slots before filtering:', availableSlots.length);
             // Filter out late wind-down period slots (2 hours before bedtime)
             if (user?.sleepSchedule) {
-                console.log('[removing wind_down_slots] User has sleep schedule:', user.sleepSchedule);
                 availableSlots = await this.filterLateWindDownSlots(availableSlots, user.sleepSchedule, task);
             }
             // Filter out sleep hour slots (bedtime to wake time)

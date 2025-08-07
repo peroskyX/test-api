@@ -14,7 +14,7 @@ declare global {
 }
 
 // JWT secret key - this should be in environment variables in production
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 // Middleware to protect routes
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
@@ -73,7 +73,7 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
 // Generate JWT access token (shorter lived)
 export const generateAccessToken = (id: string): string => {
   return jwt.sign({ id }, JWT_SECRET, {
-    expiresIn: '15m', // Short-lived access token
+    expiresIn: '150m', // Short-lived access token
   });
 };
 
@@ -111,7 +111,7 @@ export const refreshToken = async (req: Request, res: Response) => {
     res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
-      expiresIn: '15m'
+      expiresIn: '150m'
     });
   } catch (error) {
     console.error('Refresh token error:', error);

@@ -4,7 +4,7 @@ exports.refreshToken = exports.generateToken = exports.generateRefreshToken = ex
 const jwt = require("jsonwebtoken");
 const models_1 = require("../models");
 // JWT secret key - this should be in environment variables in production
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 // Middleware to protect routes
 const protect = async (req, res, next) => {
     let token;
@@ -58,7 +58,7 @@ exports.protect = protect;
 // Generate JWT access token (shorter lived)
 const generateAccessToken = (id) => {
     return jwt.sign({ id }, JWT_SECRET, {
-        expiresIn: '15m', // Short-lived access token
+        expiresIn: '150m', // Short-lived access token
     });
 };
 exports.generateAccessToken = generateAccessToken;
@@ -91,7 +91,7 @@ const refreshToken = async (req, res) => {
         res.json({
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
-            expiresIn: '15m'
+            expiresIn: '150m'
         });
     }
     catch (error) {

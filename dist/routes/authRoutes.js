@@ -66,7 +66,7 @@ exports.authRoutes.post('/login', async (req, res) => {
             accessToken,
             refreshToken: refreshTokenValue,
             token: accessToken, // For backward compatibility
-            expiresIn: '15m'
+            expiresIn: '150m'
         });
     }
     catch (error) {

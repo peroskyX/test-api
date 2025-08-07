@@ -228,11 +228,89 @@ function shouldUseTodaySlots(context) {
 function shouldUseFutureSlots(context) {
     return context.schedulingStrategy === "future" && context.historicalPatterns;
 }
+/**
+ * Generate energy forecast for today with fallback logic:
+ * 1. Use actual energy data if available
+ * 2. Fall back to historical patterns if no energy data
+ * 3. Fall back to hardcoded defaults if no historical patterns
+ */
+function generateTodayEnergyForecast(context) {
+    // First priority: Use actual energy data if available
+    if (context.todayEnergyForecast && context.todayEnergyForecast.length > 0) {
+        console.log('[generateTodayEnergyForecast] Using actual energy data for today');
+        return context.todayEnergyForecast;
+    }
+    // Second priority: Use historical patterns to generate synthetic energy data
+    if (context.historicalPatterns && context.historicalPatterns.length > 0) {
+        console.log('[generateTodayEnergyForecast] No energy data for today, using historical patterns');
+        return generateSyntheticEnergyFromPatterns(context.historicalPatterns);
+    }
+    // Third priority: Use hardcoded default patterns
+    console.log('[generateTodayEnergyForecast] No energy data or historical patterns, using hardcoded defaults');
+    return generateSyntheticEnergyFromDefaults();
+}
+/**
+ * Generate synthetic energy data from historical patterns for today
+ */
+function generateSyntheticEnergyFromPatterns(patterns) {
+    const today = new Date();
+    const syntheticEnergy = [];
+    patterns.forEach(pattern => {
+        const energyDate = new Date(today);
+        energyDate.setHours(pattern.hour, 0, 0, 0);
+        syntheticEnergy.push({
+            userId: 'synthetic',
+            _id: `synthetic_${pattern.hour}`,
+            date: energyDate.toISOString(),
+            _creationTime: Date.now(),
+            mood: 'indifferent',
+            energyLevel: pattern.averageEnergy,
+            energyStage: 'wind_down',
+            hour: pattern.hour,
+            hasManualCheckIn: false
+        });
+    });
+    return syntheticEnergy;
+}
+/**
+ * Generate synthetic energy data from hardcoded default patterns
+ */
+function generateSyntheticEnergyFromDefaults() {
+    const defaultPatterns = [
+        { hour: 0, averageEnergy: 0.01 }, // Sleep
+        { hour: 1, averageEnergy: 0.01 }, // Sleep
+        { hour: 2, averageEnergy: 0.01 }, // Sleep
+        { hour: 3, averageEnergy: 0.01 }, // Sleep
+        { hour: 4, averageEnergy: 0.01 }, // Sleep
+        { hour: 5, averageEnergy: 0.01 }, // Sleep
+        { hour: 6, averageEnergy: 0.26 }, // Early morning
+        { hour: 7, averageEnergy: 0.4 }, // Morning rise
+        { hour: 8, averageEnergy: 0.6 }, // Morning peak
+        { hour: 9, averageEnergy: 0.8 }, // Peak energy
+        { hour: 10, averageEnergy: 0.85 }, // Peak continues
+        { hour: 11, averageEnergy: 0.7 }, // Pre-lunch
+        { hour: 12, averageEnergy: 0.5 }, // Midday dip
+        { hour: 13, averageEnergy: 0.45 }, // Post-lunch dip
+        { hour: 14, averageEnergy: 0.6 }, // Afternoon recovery
+        { hour: 15, averageEnergy: 0.75 }, // Afternoon rebound
+        { hour: 16, averageEnergy: 0.8 }, // Afternoon peak
+        { hour: 17, averageEnergy: 0.7 }, // Late afternoon
+        { hour: 18, averageEnergy: 0.6 }, // Early evening
+        { hour: 19, averageEnergy: 0.5 }, // Evening
+        { hour: 20, averageEnergy: 0.4 }, // Wind down
+        { hour: 21, averageEnergy: 0.26 }, // Late evening
+        { hour: 22, averageEnergy: 0.2 }, // Pre-sleep
+        { hour: 23, averageEnergy: 0.01 }, // Sleep
+    ];
+    return generateSyntheticEnergyFromPatterns(defaultPatterns);
+}
 function getAvailableSlotsForContext(context, taskDuration, energyRequirements, deadline) {
     if (shouldUseTodaySlots(context)) {
+        // Generate energy forecast for today with fallback logic
+        const energyForecast = generateTodayEnergyForecast(context);
         const todaySlots = analyzeAvailableSlotsToday({
             schedule: context.schedule,
-            energyForecast: context.todayEnergyForecast,
+            energyForecast,
             taskDuration,
             energyRequirements,
         });
