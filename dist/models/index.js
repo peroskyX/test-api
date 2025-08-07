@@ -22,7 +22,6 @@ const TaskSchema = new mongoose_1.Schema({
     endTime: { type: Date },
     actualStartTime: { type: Date },
     actualEndTime: { type: Date },
-    profileId: { type: String, required: true },
     subtasks: [{ type: String }]
 }, { timestamps: true });
 const EnergySchema = new mongoose_1.Schema({

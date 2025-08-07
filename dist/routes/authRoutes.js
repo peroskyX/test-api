@@ -55,13 +55,18 @@ exports.authRoutes.post('/login', async (req, res) => {
         if (!user || !user.validatePassword(password)) {
             return res.status(401).json({ error: 'Invalid username or password' });
         }
+        const accessToken = (0, authMiddleware_1.generateAccessToken)(user._id.toString());
+        const refreshTokenValue = (0, authMiddleware_1.generateRefreshToken)(user._id.toString());
         res.json({
             _id: user._id,
             username: user.username,
             email: user.email,
             firstName: user.firstName,
             lastName: user.lastName,
-            token: (0, authMiddleware_1.generateToken)(user._id.toString())
+            accessToken,
+            refreshToken: refreshTokenValue,
+            token: accessToken, // For backward compatibility
+            expiresIn: '15m'
         });
     }
     catch (error) {
@@ -154,4 +159,12 @@ exports.authRoutes.get('/sleep-schedule', authMiddleware_2.protect, async (req, 
         console.error('Get sleep schedule error:', error);
         res.status(500).json({ error: 'Server error while fetching sleep schedule' });
     }
+});
+// Refresh token endpoint
+exports.authRoutes.post('/refresh-token', authMiddleware_1.refreshToken);
+// Optional: Add logout endpoint to invalidate tokens
+exports.authRoutes.post('/logout', authMiddleware_2.protect, async (req, res) => {
+    // In a production app, you'd typically blacklist the token or store logout info
+    // For now, just return success - client should delete tokens
+    res.json({ message: 'Logged out successfully' });
 });

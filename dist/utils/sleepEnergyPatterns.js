@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.COMMON_SLEEP_SCHEDULES = void 0;
 exports.generateEnergyPatternsFromSleep = generateEnergyPatternsFromSleep;
+exports.generateEnergyForecastFromSleep = generateEnergyForecastFromSleep;
 exports.getEnergyStageFromLevel = getEnergyStageFromLevel;
 /**
  * Generates personalized energy patterns based on sleep schedule
@@ -20,6 +21,84 @@ function generateEnergyPatternsFromSleep(options) {
         patterns.push({ hour, averageEnergy: energy });
     }
     return patterns;
+}
+/**
+ * Generate comprehensive energy forecast based on sleep schedule
+ */
+function generateEnergyForecastFromSleep(options) {
+    const { sleepSchedule, chronotype = 'neutral' } = options;
+    const { bedtime, wakeHour } = sleepSchedule;
+    // Calculate sleep duration and key time points
+    const sleepDuration = calculateSleepDuration(bedtime, wakeHour);
+    const midDay = calculateMidDay(wakeHour, bedtime);
+    const awakeHours = calculateSleepDuration(wakeHour, bedtime);
+    const energyData = [];
+    // Generate 24-hour energy forecast (0-23)
+    for (let hour = 0; hour < 24; hour++) {
+        const energyLevel = calculateEnergyForHour(hour, wakeHour, bedtime, midDay, chronotype);
+        // Debug log to show hour and energy level
+        console.log(`Hour ${hour}: energyLevel ${energyLevel}`);
+        // Calculate hours since wake for energy stage determination
+        let hoursSinceWake = hour - wakeHour;
+        if (hoursSinceWake < 0)
+            hoursSinceWake += 24;
+        // Get energy stage with late_wind_down consideration
+        const energyStage = getEnergyStageFromLevelWithBedtime(energyLevel, hoursSinceWake, awakeHours, hour, bedtime);
+        // Determine mood based on energy level and stage
+        const mood = getMoodFromEnergyAndStage(energyLevel, energyStage);
+        energyData.push({
+            hour: hour,
+            energyLevel: Math.round(energyLevel * 100) / 100, // Round to 2 decimal places
+            energyStage,
+            mood
+        });
+    }
+    return energyData;
+}
+/**
+ * Get energy stage name based on energy level, time, and bedtime (with late_wind_down)
+ */
+function getEnergyStageFromLevelWithBedtime(energyLevel, hoursSinceWake, awakeHours, currentHour, bedtime) {
+    // Check if we're in the wind down period (6 hours before bedtime)
+    const sixHoursBeforeBed = bedtime >= 6 ? bedtime - 6 : bedtime + 18; // Handle cross-midnight
+    // Check if current hour is in wind down period
+    let isWindDown = false;
+    if (bedtime >= 6) {
+        // Normal case: bedtime is 6 or later
+        isWindDown = currentHour >= sixHoursBeforeBed && currentHour < bedtime;
+    }
+    else {
+        // Cross-midnight case: bedtime is before 6 AM
+        isWindDown = currentHour >= sixHoursBeforeBed || currentHour < bedtime;
+    }
+    if (isWindDown) {
+        return 'wind_down';
+    }
+    // Use existing logic for other stages
+    return getEnergyStageFromLevel(energyLevel, hoursSinceWake, awakeHours);
+}
+/**
+ * Get mood based on energy level and stage
+ */
+function getMoodFromEnergyAndStage(energyLevel, energyStage) {
+    if (energyStage === 'sleep_phase') {
+        return 'tired';
+    }
+    if (energyStage === 'late_wind_down') {
+        return 'tired';
+    }
+    if (energyLevel >= 0.8) {
+        return 'motivated';
+    }
+    else if (energyLevel >= 0.6) {
+        return 'focused';
+    }
+    else if (energyLevel >= 0.4) {
+        return energyStage === 'morning_rise' ? 'calm' : 'relaxed';
+    }
+    else {
+        return 'tired';
+    }
 }
 /**
  * Calculate sleep duration accounting for cross-midnight sleep
@@ -54,20 +133,44 @@ function calculateMidDay(wakeHour, bedtime) {
  * Calculate energy level for a specific hour
  */
 function calculateEnergyForHour(hour, wakeHour, bedtime, midDay, chronotype) {
-    // During sleep hours, energy is very low
+    // During sleep hours, energy is very low (0.04-0.09 range)
     if (isAsleep(hour, bedtime, wakeHour)) {
-        return 0.1;
+        const sleepEnergyLevels = [0.09, 0.07, 0.08, 0.04, 0.08, 0.04, 0.04, 0.06];
+        return sleepEnergyLevels[hour % sleepEnergyLevels.length];
     }
     // Calculate hours since waking
     let hoursSinceWake = hour - wakeHour;
     if (hoursSinceWake < 0)
         hoursSinceWake += 24;
-    // Base energy curve
-    let energy = calculateBaseEnergyCurve(hoursSinceWake, wakeHour, bedtime);
+    const awakeHours = calculateSleepDuration(wakeHour, bedtime);
+    const relativeTime = hoursSinceWake / awakeHours;
+    // Define energy patterns based on time of day relative to wake/sleep cycle
+    let energy = 0.5; // Default
+    if (relativeTime <= 0.1) {
+        // Just woke up - morning rise (0.32-0.5)
+        energy = 0.32 + (relativeTime * 10 * 0.18); // Gradual rise
+    }
+    else if (relativeTime <= 0.35) {
+        // Morning peak (0.86-0.97)
+        energy = 0.86 + (Math.sin((relativeTime - 0.1) * 4) * 0.11);
+    }
+    else if (relativeTime <= 0.6) {
+        // Midday dip (0.28-0.3)
+        energy = 0.28 + (Math.random() * 0.02);
+    }
+    else if (relativeTime <= 0.75) {
+        // Afternoon rebound (0.62-0.7)
+        energy = 0.62 + ((relativeTime - 0.6) * 0.53);
+    }
+    else {
+        // Wind down (0.12-0.26)
+        const windDownLevels = [0.13, 0.12, 0.26, 0.2, 0.16, 0.21];
+        energy = windDownLevels[Math.floor(Math.random() * windDownLevels.length)];
+    }
     // Apply chronotype modifications
     energy = applyChronotypeModification(energy, hour, wakeHour, bedtime, chronotype);
-    // Ensure energy stays within bounds
-    return Math.max(0.1, Math.min(1.0, energy));
+    // Ensure energy stays within realistic bounds
+    return Math.max(0.04, Math.min(0.97, energy));
 }
 /**
  * Check if a given hour is during sleep time

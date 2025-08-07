@@ -1,7 +1,7 @@
 // src/routes/authRoutes.ts
 import { Router, Request, Response } from 'express';
 import { User } from '../models';
-import { generateToken } from '../middleware/authMiddleware';
+import { generateToken, generateAccessToken, generateRefreshToken, refreshToken } from '../middleware/authMiddleware';
 import { SmartSchedulingService } from '../services/smartSchedulingService';
 import { protect } from '../middleware/authMiddleware';
 
@@ -62,13 +62,19 @@ authRoutes.post('/login', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
+    const accessToken = generateAccessToken(user._id.toString());
+    const refreshTokenValue = generateRefreshToken(user._id.toString());
+    
     res.json({
       _id: user._id,
       username: user.username,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
-      token: generateToken(user._id.toString())
+      accessToken,
+      refreshToken: refreshTokenValue,
+      token: accessToken, // For backward compatibility
+      expiresIn: '15m'
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -173,4 +179,14 @@ authRoutes.get('/sleep-schedule', protect, async (req: Request, res: Response) =
     console.error('Get sleep schedule error:', error);
     res.status(500).json({ error: 'Server error while fetching sleep schedule' });
   }
+});
+
+// Refresh token endpoint
+authRoutes.post('/refresh-token', refreshToken);
+
+// Optional: Add logout endpoint to invalidate tokens
+authRoutes.post('/logout', protect, async (req: Request, res: Response) => {
+  // In a production app, you'd typically blacklist the token or store logout info
+  // For now, just return success - client should delete tokens
+  res.json({ message: 'Logged out successfully' });
 });

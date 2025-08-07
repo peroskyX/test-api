@@ -14,7 +14,7 @@ declare global {
 }
 
 // JWT secret key - this should be in environment variables in production
-const JWT_SECRET = process.env.JWT_SECRET || 'smart-scheduling-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Middleware to protect routes
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
@@ -70,9 +70,51 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
   }
 };
 
-// Generate JWT token
-export const generateToken = (id: string): string => {
+// Generate JWT access token (shorter lived)
+export const generateAccessToken = (id: string): string => {
   return jwt.sign({ id }, JWT_SECRET, {
-    expiresIn: '30d', // Token expires in 30 days
+    expiresIn: '15m', // Short-lived access token
   });
+};
+
+// Generate JWT refresh token (longer lived)
+export const generateRefreshToken = (id: string): string => {
+  return jwt.sign({ id, type: 'refresh' }, JWT_SECRET, {
+    expiresIn: '7d', // Refresh token lasts 7 days
+  });
+};
+
+// Legacy function for backward compatibility
+export const generateToken = (id: string): string => {
+  return generateAccessToken(id);
+};
+
+// Middleware to refresh access token
+export const refreshToken = async (req: Request, res: Response) => {
+  const { refreshToken } = req.body;
+  
+  if (!refreshToken) {
+    return res.status(401).json({ error: 'Refresh token required' });
+  }
+  
+  try {
+    const decoded: any = jwt.verify(refreshToken, JWT_SECRET);
+    
+    if (decoded.type !== 'refresh') {
+      return res.status(401).json({ error: 'Invalid refresh token' });
+    }
+    
+    // Generate new access token
+    const newAccessToken = generateAccessToken(decoded.id);
+    const newRefreshToken = generateRefreshToken(decoded.id);
+    
+    res.json({
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+      expiresIn: '15m'
+    });
+  } catch (error) {
+    console.error('Refresh token error:', error);
+    res.status(401).json({ error: 'Invalid refresh token' });
+  }
 };

@@ -694,6 +694,9 @@ export class SmartSchedulingService {
       return;
     }
     
+    // Get user's sleep schedule for filling missing hours
+    const user = await User.findById(userId).select('sleepSchedule');
+    
     // Group by hour and calculate averages
     const hourlyData = new Map<number, number[]>();
     
@@ -705,22 +708,53 @@ export class SmartSchedulingService {
       hourlyData.get(hour)!.push(entry.energyLevel);
     });
     
-    // Update patterns
-    for (const [hour, levels] of hourlyData.entries()) {
-      const averageEnergy = levels.reduce((sum, level) => sum + level, 0) / levels.length;
-      
-      await HistoricalEnergyPattern.findOneAndUpdate(
-        { userId, hour },
-        {
-          averageEnergy,
-          sampleCount: levels.length,
-          lastUpdated: new Date()
-        },
-        { upsert: true }
-      );
+    // Ensure all 24 hours have patterns
+    for (let hour = 0; hour < 24; hour++) {
+      if (hourlyData.has(hour)) {
+        // Update with actual data
+        const levels = hourlyData.get(hour)!;
+        const averageEnergy = levels.reduce((sum, level) => sum + level, 0) / levels.length;
+        
+        await HistoricalEnergyPattern.findOneAndUpdate(
+          { userId, hour },
+          {
+            averageEnergy,
+            sampleCount: levels.length,
+            lastUpdated: new Date()
+          },
+          { upsert: true }
+        );
+      } else {
+        // Fill missing hour with default based on sleep schedule
+        let defaultEnergy = 0.1; // Default sleep energy
+        
+        if (user?.sleepSchedule) {
+          const { bedtime, wakeHour } = user.sleepSchedule;
+          const isAwake = bedtime > wakeHour 
+            ? (hour >= wakeHour && hour < bedtime)
+            : (hour >= wakeHour || hour < bedtime);
+          
+          if (isAwake) {
+            // Use default awake energy patterns
+            const defaultPatterns = this.getDefaultEnergyPatternsWithSleep(user.sleepSchedule);
+            const pattern = defaultPatterns.find(p => p.hour === hour);
+            defaultEnergy = pattern?.averageEnergy || 0.5;
+          }
+        }
+        
+        await HistoricalEnergyPattern.findOneAndUpdate(
+          { userId, hour },
+          {
+            averageEnergy: defaultEnergy,
+            sampleCount: 0, // Mark as default/estimated
+            lastUpdated: new Date()
+          },
+          { upsert: true }
+        );
+      }
     }
     
-    console.log(`[updateHistoricalPatterns] Updated ${hourlyData.size} hourly patterns for user ${userId}`);
+    console.log(`[updateHistoricalPatterns] Updated all 24 hourly patterns for user ${userId} (${hourlyData.size} with actual data, ${24 - hourlyData.size} with defaults)`);
   }
 
   /**
@@ -860,7 +894,7 @@ export class SmartSchedulingService {
     const { bedtime, wakeHour } = sleepSchedule;
     
     for (let hour = 0; hour < 24; hour++) {
-      let energy = 0.1; // Default sleep energy
+      let energy = 0.05; // Default sleep energy (always < 0.1)
       
       // Check if hour is during wake time
       const isAwake = bedtime > wakeHour 
@@ -873,27 +907,38 @@ export class SmartSchedulingService {
         const awakeHours = bedtime > wakeHour ? bedtime - wakeHour : (24 - wakeHour + bedtime);
         const relativeTime = hoursSinceWake / awakeHours;
         
-        // Generate energy based on relative time in wake period
-        if (relativeTime < 0.1) {
-          energy = 0.3 + (relativeTime * 5); // Morning rise
-        } else if (relativeTime < 0.35) {
-          energy = 0.8 + (Math.sin((relativeTime - 0.1) * 4) * 0.1); // Morning peak
-        } else if (relativeTime < 0.6) {
-          energy = 0.5 + (Math.random() * 0.2); // Midday dip
-        } else if (relativeTime < 0.75) {
-          energy = 0.7 + (Math.random() * 0.1); // Afternoon rebound
+        // Check if this is late wind-down period (2 hours before bedtime)
+        let hoursBeforeBed;
+        if (bedtime > hour) {
+          hoursBeforeBed = bedtime - hour;
         } else {
-          // Wind down - lower energy in last 2 hours before bed
-          const hoursBeforeBed = bedtime - hour;
-          if (hoursBeforeBed <= 2 && hoursBeforeBed > 0) {
-            energy = 0.2 + (Math.random() * 0.1); // Late wind-down (very low)
+          hoursBeforeBed = (24 - hour) + bedtime;
+        }
+        
+        if (hoursBeforeBed <= 2 && hoursBeforeBed > 0) {
+          // Late wind-down: between 0.1 and 0.3
+          energy = 0.15 + (Math.random() * 0.1); // 0.15-0.25 range
+        } else {
+          // Generate energy based on relative time in wake period
+          if (relativeTime < 0.1) {
+            energy = 0.3 + (relativeTime * 5); // Morning rise
+          } else if (relativeTime < 0.35) {
+            energy = 0.8 + (Math.sin((relativeTime - 0.1) * 4) * 0.1); // Morning peak
+          } else if (relativeTime < 0.6) {
+            energy = 0.5 + (Math.random() * 0.2); // Midday dip
+          } else if (relativeTime < 0.75) {
+            energy = 0.7 + (Math.random() * 0.1); // Afternoon rebound
           } else {
+            // Regular wind down (not late wind-down)
             energy = 0.4 + (Math.random() * 0.2); // Regular wind down
           }
         }
+      } else {
+        // Sleep hours: always < 0.1
+        energy = 0.01 + (Math.random() * 0.05); // 0.01-0.06 range
       }
       
-      patterns.push({ hour, averageEnergy: Math.max(0.1, Math.min(1.0, energy)) });
+      patterns.push({ hour, averageEnergy: Math.max(0.01, Math.min(1.0, energy)) });
     }
     
     return patterns;
