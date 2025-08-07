@@ -319,6 +319,7 @@ export class SmartSchedulingService {
         task.endTime
       );
       
+      console.log('[removing wind_down_slots] Available slots before filtering:', availableSlots.length);
       // Filter out late wind-down period slots (2 hours before bedtime)
       if (user?.sleepSchedule) {
         availableSlots = await this.filterLateWindDownSlots(
