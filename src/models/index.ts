@@ -18,6 +18,10 @@ export interface ITask extends Document {
   parentTaskId?: string;
   startTime?: Date;
   endTime?: Date;
+  // If the user supplied a deadline-only date, store it here to constrain future rescheduling
+  originalDeadline?: Date;
+  // When true, scheduling/rescheduling must not go beyond originalDeadline
+  isDeadlineConstrained?: boolean;
   actualStartTime?: Date;
   actualEndTime?: Date;
   subtasks: string[];
@@ -40,6 +44,8 @@ const TaskSchema = new Schema<ITask>({
   parentTaskId: { type: String },
   startTime: { type: Date },
   endTime: { type: Date },
+  originalDeadline: { type: Date },
+  isDeadlineConstrained: { type: Boolean, default: false },
   actualStartTime: { type: Date },
   actualEndTime: { type: Date },
   subtasks: [{ type: String }]

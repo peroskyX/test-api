@@ -12,6 +12,77 @@ export class SmartSchedulingService {
   constructor() {
     this.notificationService = new NotificationService();
   }
+
+  /**
+   * For a newly created manual task, notify if it conflicts with:
+   * - Calendar events (with a 10-minute buffer applied to events only)
+   * - Other manual tasks (no buffer)
+   */
+  private async notifyConflictsForNewManualTask(task: ITask): Promise<boolean> {
+    if (!task || task.isAutoSchedule) return false;
+    if (!task.startTime || !task.endTime) return false;
+
+    const start = new Date(task.startTime);
+    const end = new Date(task.endTime);
+
+    let conflictFound = false;
+
+    // 1) Events with 10-min buffer
+    const overlappingEvents = await ScheduleItem.find({
+      userId: task.userId,
+      type: 'event',
+      startTime: { $lt: end },
+      endTime: { $gt: start }
+    });
+
+    for (const ev of overlappingEvents) {
+      const bufferedStart = addMinutes(new Date(ev.startTime), -10);
+      const bufferedEnd = addMinutes(new Date(ev.endTime), 10);
+      const overlapsBuffered = start < bufferedEnd && end > bufferedStart;
+      if (overlapsBuffered) {
+        conflictFound = true;
+        await this.notificationService.sendNotification(
+          NotificationType.EVENT_CONFLICT,
+          task.userId,
+          {
+            taskId: task.id || task._id?.toString(),
+            taskTitle: task.title,
+            eventTitle: ev.title,
+            eventStartTime: ev.startTime,
+            eventEndTime: ev.endTime,
+            conflictingStartTime: start,
+            conflictingEndTime: end
+          }
+        );
+      }
+    }
+
+    // 2) Other manual tasks (no buffer)
+    const overlappingManualTasks = await Task.find({
+      userId: task.userId,
+      isAutoSchedule: false,
+      _id: { $ne: task._id },
+      startTime: { $lt: end },
+      endTime: { $gt: start }
+    });
+
+    for (const mt of overlappingManualTasks) {
+      conflictFound = true;
+      await this.notificationService.sendNotification(
+        NotificationType.TASK_CONFLICT,
+        task.userId,
+        {
+          taskId: task.id || task._id?.toString(),
+          taskTitle: task.title,
+          conflictingTaskTitle: mt.title,
+          conflictingStartTime: mt.startTime,
+          conflictingEndTime: mt.endTime
+        }
+      );
+    }
+
+    return conflictFound;
+  }
  
   async createTaskWithSmartScheduling(taskData: Partial<ITask>): Promise<ITask> {
     console.log('[SmartSchedulingService] Creating task with data:', {
@@ -86,12 +157,23 @@ export class SmartSchedulingService {
         task.endTime = calculatedEndTime;
       }
       
+      // If manual with times, pre-check conflicts and block creation if any
+      if (task.startTime && task.endTime && task.isAutoSchedule === false) {
+        const hasConflict = await this.notifyConflictsForNewManualTask(task);
+        if (hasConflict) {
+          // Do NOT create nor schedule the task
+          throw new Error('manual_task_conflict');
+        }
+      }
+
       // Save the task (whether it has dates or not)
       await task.save();
       
       // Add to schedule only if task has both start and end times
       if (task.startTime && task.endTime) {
         await this.addTaskToSchedule(task);
+        // If a manual task clashes with auto-scheduled tasks, reschedule the smart tasks
+        await this.rescheduleTasksForNewManualTask(task);
       }
     }
     
@@ -555,8 +637,15 @@ export class SmartSchedulingService {
     }
     
     if (targetDate) {
-      const endOfSearchWindow = task.endTime ? task.endTime : addDays(targetDate, 7);
-      query.startTime = { $gte: targetDate, $lt: endOfSearchWindow };
+      // Include the entire day of targetDate to catch earlier events the same day (e.g., morning meetings)
+      const windowStart = startOfDay(targetDate);
+      // Ensure non-empty window. If task.endTime is equal to or before targetDate,
+      // widen the window to 7 days ahead so we include near-future items (like the conflicting event).
+      let endOfSearchWindow = task.endTime ? new Date(task.endTime) : addDays(targetDate, 7);
+      if (!endOfSearchWindow || endOfSearchWindow <= targetDate) {
+        endOfSearchWindow = addDays(targetDate, 7);
+      }
+      query.startTime = { $gte: windowStart, $lt: endOfSearchWindow };
       
       console.log('[getScheduleItemsWithBuffer] Date-only query:', {
         targetDate,
@@ -755,6 +844,209 @@ export class SmartSchedulingService {
   }
 
   /**
+   * Update a task and reschedule it if needed, with deadline and conflict handling (minimal version)
+   */
+  async updateTaskWithRescheduling(taskId: string, updates: Partial<TaskBody>): Promise<ITask | null> {
+    const task = await Task.findById(taskId);
+    if (!task) return null;
+
+    // Always recompute endTime from duration if possible
+    if (updates.startTime && updates.estimatedDuration) {
+      updates.endTime = addMinutes(new Date(updates.startTime), updates.estimatedDuration);
+    } else if (updates.estimatedDuration && task.startTime) {
+      updates.endTime = addMinutes(new Date(task.startTime), updates.estimatedDuration);
+    }
+
+    // Apply updates
+    Object.assign(task, updates);
+
+    // Set originalDeadline if deadline-constrained and not already set
+    if (task.isDeadlineConstrained && !task.originalDeadline && task.endTime) {
+      task.originalDeadline = new Date(task.endTime);
+    }
+
+    // Auto-reschedule only for auto-scheduled tasks
+    if (task.isAutoSchedule) {
+      let daysToLookAhead = 0;
+      if (task.isDeadlineConstrained && task.originalDeadline) {
+        const hours = Math.max(0, differenceInHours(new Date(task.originalDeadline), new Date()));
+        daysToLookAhead = Math.ceil(hours / 24);
+      }
+
+      const taskSelect = this.convertToTaskSelect(task);
+      const scheduledTime = await this.findOptimalTimeForTask(taskSelect, task.userId, daysToLookAhead);
+
+      if (scheduledTime) {
+        if (task.isDeadlineConstrained && task.originalDeadline && scheduledTime.endTime > task.originalDeadline) {
+          // Respect deadline: do not move beyond originalDeadline
+          // Keep existing times if they exist; otherwise no change
+        } else {
+          task.startTime = scheduledTime.startTime;
+          task.endTime = scheduledTime.endTime;
+        }
+      }
+    }
+
+    await task.save();
+
+    // Update corresponding schedule item if task has times
+    if (task.startTime && task.endTime) {
+      await ScheduleItem.findOneAndUpdate(
+        { taskId: task.id || task._id?.toString() },
+        { startTime: task.startTime, endTime: task.endTime },
+        { upsert: true }
+      );
+    }
+
+    // Note: Full conflict detection/notifications exist elsewhere; this is a minimal implementation
+    return task;
+  }
+
+  /**
+   * When a manual task is created and it conflicts with auto-scheduled tasks,
+   * reschedule the auto-scheduled tasks within their constraints (deadline, etc.).
+   * Mirrors the behavior used when a new calendar event is added.
+   */
+  public async rescheduleTasksForNewManualTask(manualTask: ITask): Promise<void> {
+    if (!manualTask.startTime || !manualTask.endTime) return;
+
+    // For manual tasks, DO NOT apply any buffer; use exact times
+    const manualStart = new Date(manualTask.startTime);
+    const manualEnd = new Date(manualTask.endTime);
+
+    // Find conflicting auto-scheduled tasks (exact overlap with manual task)
+    const conflictingTasks = await Task.find({
+      userId: manualTask.userId,
+      isAutoSchedule: true,
+      status: 'pending',
+      _id: { $ne: manualTask._id },
+      startTime: { $lt: manualEnd },
+      endTime: { $gt: manualStart }
+    });
+
+    for (const t of conflictingTasks) {
+      const taskSelect = this.convertToTaskSelect(t);
+      const newTime = await this.findOptimalTimeForTask(taskSelect, t.userId, 0, [t.id || t._id?.toString()!]);
+
+      // Reject any slot that overlaps the manual task's exact time window
+      const overlapsManual = !!newTime && newTime.startTime < manualEnd && newTime.endTime > manualStart;
+
+      // Also ensure it doesn't overlap any other existing schedule items with buffer on that day
+      let overlapsAny = false;
+      if (newTime) {
+        const daySchedule = await this.getScheduleItemsWithBuffer(t.userId, newTime.startTime, taskSelect, [t.id || t._id?.toString()!]);
+        overlapsAny = daySchedule.some(item => {
+          // Skip self by taskId
+          if (item.type === 'task' && item.id && (item.id === (t.id || t._id?.toString()))) return false;
+          return newTime.startTime < item.endTime && newTime.endTime > item.startTime;
+        });
+      }
+
+      if (newTime && !overlapsManual && !overlapsAny) {
+        const oldTime = { startTime: t.startTime, endTime: t.endTime } as { startTime: Date | null; endTime: Date | null };
+        t.startTime = newTime.startTime;
+        t.endTime = newTime.endTime;
+        await t.save();
+
+        await ScheduleItem.findOneAndUpdate(
+          { taskId: t._id?.toString() },
+          { startTime: t.startTime, endTime: t.endTime }
+        );
+
+        await this.notificationService.sendNotification(
+          NotificationType.TASK_RESCHEDULED,
+          t.userId,
+          {
+            taskTitle: t.title,
+            oldTime,
+            newTime,
+            reason: `Manual task "${manualTask.title}" was added`
+          }
+        );
+      } else {
+        await this.notificationService.sendNotification(
+          NotificationType.NO_OPTIMAL_TIME,
+          t.userId,
+          {
+            taskTitle: t.title,
+            reason: `Conflicted with manual task "${manualTask.title}" and no alternative non-overlapping slot available`
+          }
+        );
+      }
+    }
+  }
+
+  /**
+   * Reschedule auto-scheduled tasks that conflict with a newly added calendar event.
+   */
+  async rescheduleTasksForNewEvent(event: IScheduleItem): Promise<void> {
+    if (!event.startTime || !event.endTime) return;
+
+    const bufferedEventStart = addMinutes(new Date(event.startTime), -10);
+    const bufferedEventEnd = addMinutes(new Date(event.endTime), 10);
+
+    // Find conflicting auto-scheduled tasks
+    const conflictingTasks = await Task.find({
+      userId: event.userId,
+      isAutoSchedule: true,
+      startTime: { $lt: bufferedEventEnd },
+      endTime: { $gt: bufferedEventStart },
+      status: 'pending'
+    });
+
+    for (const t of conflictingTasks) {
+      const taskSelect = this.convertToTaskSelect(t);
+      const newTime = await this.findOptimalTimeForTask(taskSelect, t.userId, 0, [t.id || t._id?.toString()!]);
+
+      // Extra safety: do not accept a slot that still overlaps the buffered triggering event
+      const overlapsEvent = !!newTime && newTime.startTime < bufferedEventEnd && newTime.endTime > bufferedEventStart;
+
+      // Also ensure it doesn't overlap any other existing schedule items with buffer on that day
+      let overlapsAny = false;
+      if (newTime) {
+        const daySchedule = await this.getScheduleItemsWithBuffer(t.userId, newTime.startTime, taskSelect, [t.id || t._id?.toString()!]);
+        overlapsAny = daySchedule.some(item => {
+          // Skip self by taskId
+          if (item.type === 'task' && item.id && (item.id === (t.id || t._id?.toString()))) return false;
+          return newTime.startTime < item.endTime && newTime.endTime > item.startTime;
+        });
+      }
+
+      if (newTime && !overlapsEvent && !overlapsAny) {
+        const oldTime = { startTime: t.startTime, endTime: t.endTime } as { startTime: Date | null; endTime: Date | null };
+        t.startTime = newTime.startTime;
+        t.endTime = newTime.endTime;
+        await t.save();
+
+        await ScheduleItem.findOneAndUpdate(
+          { taskId: t.id || t._id?.toString() },
+          { startTime: t.startTime, endTime: t.endTime }
+        );
+
+        await this.notificationService.sendNotification(
+          NotificationType.TASK_RESCHEDULED,
+          t.userId,
+          {
+            taskTitle: t.title,
+            oldTime,
+            newTime,
+            reason: `Calendar event "${event.title}" was added`
+          }
+        );
+      } else {
+        await this.notificationService.sendNotification(
+          NotificationType.NO_OPTIMAL_TIME,
+          t.userId,
+          {
+            taskTitle: t.title,
+            reason: `Conflicted with existing schedule (e.g., event "${event.title}") and no alternative non-overlapping slot available`
+          }
+        );
+      }
+    }
+  }
+
+  /**
    * Add task to schedule
    */
   private async addTaskToSchedule(task: ITask): Promise<void> {
@@ -771,119 +1063,6 @@ export class SmartSchedulingService {
   }
 
   /**
-   * Update a task and reschedule if necessary
-   */
-  async updateTaskWithRescheduling(taskId: string, updates: Partial<TaskBody>): Promise<ITask | null> {
-    const task = await Task.findById(taskId);
-    if (!task) return null;
-    
-    const oldTaskSelect = this.convertToTaskSelect(task);
-    
-    // ACCEPTANCE CRITERIA: Always use duration to calculate endTime
-    if (updates.startTime && updates.estimatedDuration) {
-      updates.endTime = addMinutes(new Date(updates.startTime), updates.estimatedDuration);
-      console.log('[updateTaskWithRescheduling] Overriding endTime with duration');
-    } else if (updates.estimatedDuration && task.startTime) {
-      // If only duration is updated, recalculate endTime
-      updates.endTime = addMinutes(task.startTime, updates.estimatedDuration);
-    }
-    
-    // Apply updates
-    Object.assign(task, updates);
-    
-    // Check if rescheduling is needed
-    if (SmartScheduling.shouldAutoReschedule(oldTaskSelect, updates)) {
-      const scheduledTime = await this.findOptimalTimeForTask(this.convertToTaskSelect(task), task.userId);
-      if (scheduledTime) {
-        task.startTime = scheduledTime.startTime;
-        task.endTime = scheduledTime.endTime;
-        
-        // Check for and handle any displacements
-        await this.handleTaskDisplacement(task);
-        
-        // Update schedule item
-        await ScheduleItem.findOneAndUpdate(
-          { taskId: task.id, userId: task.userId },
-          {
-            startTime: task.startTime,
-            endTime: task.endTime,
-            title: task.title
-          }
-        );
-      }
-    }
-    
-    await task.save();
-    return task;
-  }
-
-  /**
-   * Reschedule tasks when a new calendar event is added
-   */
-  async rescheduleTasksForNewEvent(event: IScheduleItem): Promise<void> {
-    // Add buffer to event for conflict detection
-    const bufferedEventStart = addMinutes(event.startTime, -10);
-    const bufferedEventEnd = addMinutes(event.endTime, 10);
-    
-    // Find tasks that conflict with the new event (including buffer)
-    const conflictingTasks = await Task.find({
-      userId: event.userId,
-      isAutoSchedule: true,
-      startTime: { $lt: bufferedEventEnd },
-      endTime: { $gt: bufferedEventStart },
-      status: 'pending'
-    });
-    
-    console.log(`[rescheduleTasksForNewEvent] Found ${conflictingTasks.length} conflicting tasks`);
-    
-    // Reschedule each conflicting task
-    for (const task of conflictingTasks) {
-      const taskSelect = this.convertToTaskSelect(task);
-      const newTime = await this.findOptimalTimeForTask(taskSelect, task.userId);
-      
-      if (newTime) {
-        const oldTime = { startTime: task.startTime, endTime: task.endTime };
-        task.startTime = newTime.startTime;
-        task.endTime = newTime.endTime;
-        await task.save();
-        
-        // Update schedule item
-        await ScheduleItem.findOneAndUpdate(
-          { taskId: task.id },
-          {
-            startTime: task.startTime,
-            endTime: task.endTime
-          }
-        );
-        
-        // Send notification about rescheduling
-        const notification = await this.notificationService.sendNotification(
-          NotificationType.TASK_RESCHEDULED,
-          task.userId,
-          {
-            taskTitle: task.title,
-            oldTime,
-            newTime,
-            reason: `Calendar event "${event.title}" was added`
-          }
-        );
-        console.log('[rescheduleTasksForNewEvent] Notification sent:', notification.id);
-      } else {
-        // Could not find alternative time
-        const notification = await this.notificationService.sendNotification(
-          NotificationType.NO_OPTIMAL_TIME,
-          task.userId,
-          {
-            taskTitle: task.title,
-            reason: `Conflicted with event "${event.title}" but no alternative slot available`
-          }
-        );
-        console.log('[rescheduleTasksForNewEvent] Notification sent:', notification.id);
-      }
-    }
-  }
-
-  /**
    * Get default energy patterns with sleep schedule consideration
    */
   getDefaultEnergyPatternsWithSleep(sleepSchedule: { bedtime: number; wakeHour: number }): SmartScheduling.HistoricalEnergyPattern[] {
@@ -891,7 +1070,7 @@ export class SmartSchedulingService {
     const { bedtime, wakeHour } = sleepSchedule;
     
     for (let hour = 0; hour < 24; hour++) {
-      let energy = 0.05; // Default sleep energy (always < 0.1)
+      let energy = 0.05; // Default sleep energy
       
       // Check if hour is during wake time
       const isAwake = bedtime > wakeHour 
