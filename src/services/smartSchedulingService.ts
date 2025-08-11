@@ -896,6 +896,18 @@ export class SmartSchedulingService {
         { startTime: task.startTime, endTime: task.endTime },
         { upsert: true }
       );
+
+      // If this is a manual task, reschedule only the conflicting auto-scheduled tasks
+      // and notify about any remaining conflicts. We never move other manual items.
+      if (!task.isAutoSchedule) {
+        try {
+          await this.rescheduleTasksForNewManualTask(task);
+          // Also surface any conflicts (events with 10-min buffer, other manual tasks without buffer)
+          await this.notifyConflictsForNewManualTask(task);
+        } catch (e) {
+          console.error('[updateTaskWithRescheduling] Error handling conflicts for manual task update:', e);
+        }
+      }
     }
 
     // Note: Full conflict detection/notifications exist elsewhere; this is a minimal implementation
