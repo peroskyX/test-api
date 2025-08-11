@@ -20,6 +20,8 @@ const TaskSchema = new mongoose_1.Schema({
     parentTaskId: { type: String },
     startTime: { type: Date },
     endTime: { type: Date },
+    originalDeadline: { type: Date },
+    isDeadlineConstrained: { type: Boolean, default: false },
     actualStartTime: { type: Date },
     actualEndTime: { type: Date },
     subtasks: [{ type: String }]

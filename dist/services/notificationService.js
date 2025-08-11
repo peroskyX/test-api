@@ -11,6 +11,8 @@ var NotificationType;
     NotificationType["TASK_DEADLINE_APPROACHING"] = "task_deadline_approaching";
     NotificationType["TASK_DISPLACED"] = "task_displaced";
     NotificationType["LATE_WIND_DOWN_CONFLICT"] = "late_wind_down_conflict";
+    NotificationType["TASK_CONFLICT"] = "task_conflict";
+    NotificationType["EVENT_CONFLICT"] = "event_conflict";
 })(NotificationType || (exports.NotificationType = NotificationType = {}));
 /**
  * Notification severity levels for UI styling
@@ -127,6 +129,44 @@ class NotificationService {
                         oldTime: data.oldTime,
                         newTime: data.newTime,
                         reason: data.reason
+                    }
+                };
+            case NotificationType.TASK_CONFLICT:
+                return {
+                    id,
+                    type,
+                    severity: NotificationSeverity.WARNING,
+                    title: 'Conflict With Manually Scheduled Task',
+                    message: `Your update conflicts with manually scheduled task "${data.conflictingTaskTitle}" from ${new Date(data.conflictingStartTime).toLocaleString()} to ${new Date(data.conflictingEndTime).toLocaleString()}.`,
+                    timestamp,
+                    userId,
+                    taskId: data.taskId,
+                    actions: [
+                        { label: 'Adjust Time', action: 'adjust_time', variant: 'primary', data: { taskId: data.taskId } },
+                        { label: 'Dismiss', action: 'dismiss', variant: 'secondary' }
+                    ],
+                    metadata: {
+                        taskTitle: data.taskTitle,
+                        reason: 'Conflict with manually scheduled task'
+                    }
+                };
+            case NotificationType.EVENT_CONFLICT:
+                return {
+                    id,
+                    type,
+                    severity: NotificationSeverity.WARNING,
+                    title: 'Conflict With Event',
+                    message: `Your update conflicts with event "${data.eventTitle}" from ${new Date(data.eventStartTime).toLocaleString()} to ${new Date(data.eventEndTime).toLocaleString()}.`,
+                    timestamp,
+                    userId,
+                    taskId: data.taskId,
+                    actions: [
+                        { label: 'Adjust Time', action: 'adjust_time', variant: 'primary', data: { taskId: data.taskId } },
+                        { label: 'Dismiss', action: 'dismiss', variant: 'secondary' }
+                    ],
+                    metadata: {
+                        taskTitle: data.taskTitle,
+                        reason: 'Conflict with event'
                     }
                 };
             case NotificationType.TASK_DISPLACED:

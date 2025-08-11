@@ -8,28 +8,19 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 // Middleware to protect routes
 const protect = async (req, res, next) => {
     let token;
-    console.log('🔐 Auth middleware called for:', req.method, req.path);
-    console.log('📋 Authorization header:', req.headers.authorization ? 'Present' : 'Missing');
     // Check if token exists in Authorization header
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
         try {
             // Get token from header
             token = req.headers.authorization.split(' ')[1];
-            console.log('🎫 Token extracted:', token ? `${token.substring(0, 20)}...` : 'null');
             // Verify token
             try {
                 const decoded = jwt.verify(token, JWT_SECRET);
-                console.log('✅ Token verified successfully. User ID:', decoded.id);
                 // Get user from token
                 const user = await models_1.User.findById(decoded.id).select('-hashedPassword -salt');
-                console.log('👤 Database lookup result:', user ? 'User found' : 'User not found');
                 if (!user) {
-                    console.log('User not found with id:', decoded.id);
                     res.status(401).json({ error: 'Not authorized, user not found' });
                     return;
-                }
-                if (user) {
-                    console.log('User found with id:', decoded.id);
                 }
                 // Set user in request object
                 req.user = user;
@@ -58,7 +49,7 @@ exports.protect = protect;
 // Generate JWT access token (shorter lived)
 const generateAccessToken = (id) => {
     return jwt.sign({ id }, JWT_SECRET, {
-        expiresIn: '150m', // Short-lived access token
+        expiresIn: '600m', // Short-lived access token
     });
 };
 exports.generateAccessToken = generateAccessToken;
@@ -91,7 +82,7 @@ const refreshToken = async (req, res) => {
         res.json({
             accessToken: newAccessToken,
             refreshToken: newRefreshToken,
-            expiresIn: '150m'
+            expiresIn: '600m'
         });
     }
     catch (error) {
