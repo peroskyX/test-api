@@ -1,4 +1,4 @@
-// src/services/notificationService.ts
+// src/services/notificationService.ts - UPDATED WITH NEW NOTIFICATION TYPES
 import { ITask } from '../models';
 
 /**
@@ -9,7 +9,10 @@ export enum NotificationType {
   TASK_RESCHEDULED = 'task_rescheduled',
   TASK_DEADLINE_APPROACHING = 'task_deadline_approaching',
   TASK_DISPLACED = 'task_displaced',
-  LATE_WIND_DOWN_CONFLICT = 'late_wind_down_conflict'
+  LATE_WIND_DOWN_CONFLICT = 'late_wind_down_conflict',
+  MANUAL_TASK_CONFLICT = 'manual_task_conflict',  // NEW
+  EVENT_CONFLICT = 'event_conflict',  // NEW
+  MULTIPLE_CONFLICTS = 'multiple_conflicts'  // NEW
 }
 
 /**
@@ -55,6 +58,10 @@ export interface NotificationMessage {
     reason?: string;
     displacedBy?: string;
     hoursRemaining?: number;
+    conflictingTasks?: Array<{ title: string; startTime: Date; endTime: Date }>;
+    conflictingEvent?: { id: string; title: string; startTime: Date; endTime: Date };
+    conflicts?: Array<{ id: string; title: string; type: string; startTime: Date; endTime: Date }>;
+    proposedTime?: { startTime: Date; endTime: Date };
   };
 }
 
@@ -105,6 +112,120 @@ export class NotificationService {
     const timestamp = new Date();
 
     switch (type) {
+      case NotificationType.MANUAL_TASK_CONFLICT:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.ERROR,
+          title: 'Task Conflict Detected',
+          message: this.formatManualTaskConflictMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Choose Different Time',
+              action: 'choose_different_time',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'View Conflicts',
+              action: 'view_conflicts',
+              variant: 'secondary',
+              data: { 
+                taskId: data.taskId,
+                conflicts: data.conflictingTasks 
+              }
+            },
+            {
+              label: 'Cancel',
+              action: 'cancel',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            conflictingTasks: data.conflictingTasks,
+            proposedTime: data.proposedTime
+          }
+        };
+
+      case NotificationType.EVENT_CONFLICT:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.ERROR,
+          title: 'Event Conflict',
+          message: this.formatEventConflictMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Choose Different Time',
+              action: 'choose_different_time',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'View Event',
+              action: 'view_event',
+              variant: 'secondary',
+              data: { eventId: data.conflictingEvent.id }
+            },
+            {
+              label: 'Cancel',
+              action: 'cancel',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            conflictingEvent: data.conflictingEvent,
+            proposedTime: data.proposedTime
+          }
+        };
+
+      case NotificationType.MULTIPLE_CONFLICTS:
+        return {
+          id,
+          type,
+          severity: NotificationSeverity.ERROR,
+          title: 'Multiple Conflicts Detected',
+          message: this.formatMultipleConflictsMessage(data),
+          timestamp,
+          userId,
+          taskId: data.taskId,
+          actions: [
+            {
+              label: 'Choose Different Time',
+              action: 'choose_different_time',
+              variant: 'primary',
+              data: { taskId: data.taskId }
+            },
+            {
+              label: 'View All Conflicts',
+              action: 'view_all_conflicts',
+              variant: 'secondary',
+              data: { 
+                taskId: data.taskId,
+                conflicts: data.conflicts 
+              }
+            },
+            {
+              label: 'Cancel',
+              action: 'cancel',
+              variant: 'secondary'
+            }
+          ],
+          metadata: {
+            taskTitle: data.taskTitle,
+            conflicts: data.conflicts,
+            proposedTime: data.proposedTime
+          }
+        };
+
       case NotificationType.NO_OPTIMAL_TIME:
         return {
           id,
@@ -315,6 +436,34 @@ export class NotificationService {
   }
   
   /**
+   * Format manual task conflict message
+   */
+  private formatManualTaskConflictMessage(data: any): string {
+    const { taskTitle, conflictingTasks } = data;
+    const conflictList = conflictingTasks.map((t: any) => t.title).join(', ');
+    return `Cannot update "${taskTitle}": Conflicts with manually scheduled task(s): ${conflictList}. Please choose a different time.`;
+  }
+  
+  /**
+   * Format event conflict message
+   */
+  private formatEventConflictMessage(data: any): string {
+    const { taskTitle, conflictingEvent } = data;
+    const eventTime = new Date(conflictingEvent.startTime).toLocaleString();
+    return `Cannot schedule "${taskTitle}": Conflicts with event "${conflictingEvent.title}" at ${eventTime}. Events have a 10-minute buffer before and after.`;
+  }
+  
+  /**
+   * Format multiple conflicts message
+   */
+  private formatMultipleConflictsMessage(data: any): string {
+    const { taskTitle, conflicts } = data;
+    const conflictCount = conflicts.length;
+    const types = [...new Set(conflicts.map((c: any) => c.type))];
+    return `Cannot update "${taskTitle}": Conflicts with ${conflictCount} items (${types.join(' and ')}). Please choose a different time.`;
+  }
+  
+  /**
    * Format no optimal time notification message
    */
   private formatNoOptimalTimeMessage(data: any): string {
@@ -376,7 +525,7 @@ export class NotificationService {
         taskTitle: task.title,
         tag: task.tag,
         priority: task.priority,
-        deadline: task.endTime
+        deadline: task.originalDeadline || task.endTime
       }
     );
   }

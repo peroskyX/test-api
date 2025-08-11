@@ -5,12 +5,15 @@ import * as SmartScheduling from '../smart';
 import { TAG, TaskSelect, EnergySelect, ScheduleItem as SmartScheduleItem, SchedulingContext, TaskBody } from '../smart';
 import dayjs = require('dayjs');
 import { NotificationService, NotificationType, NotificationMessage } from './notificationService';
+import { ConflictDetectionService, ConflictCheckResult } from './conflictDetectionService';
 
 export class SmartSchedulingService {
   private notificationService: NotificationService;
+  private conflictDetectionService: ConflictDetectionService;
   
   constructor() {
     this.notificationService = new NotificationService();
+    this.conflictDetectionService = new ConflictDetectionService();
   }
  
   async createTaskWithSmartScheduling(taskData: Partial<ITask>): Promise<ITask> {
@@ -24,9 +27,14 @@ export class SmartSchedulingService {
       priority: taskData.priority
     });
 
-    // ACCEPTANCE CRITERIA: Always use duration to calculate endTime
-    // If user provides startTime and endTime, ignore endTime and use duration
-
+    // Check if task is created with deadline only (no startTime)
+    const hasDeadlineOnly = !taskData.startTime && taskData.endTime;
+    if (hasDeadlineOnly) {
+      // Store original deadline for future constraint checking
+      taskData.originalDeadline = taskData.endTime;
+      taskData.isDeadlineConstrained = true;
+      console.log('[SmartSchedulingService] Task created with deadline only, storing originalDeadline:', taskData.originalDeadline);
+    }
 
     const task = new Task(taskData);
     
@@ -43,7 +51,16 @@ export class SmartSchedulingService {
     
     if (needsScheduling) {
       console.log('[SmartSchedulingService] Finding optimal time for task...');
-      const scheduledTime = await this.findOptimalTimeForTask(taskSelect, task.userId);
+      
+      // Use originalDeadline if it exists for constraint checking
+      const constraintDeadline = task.originalDeadline || task.endTime;
+      const scheduledTime = await this.findOptimalTimeForTask(
+        taskSelect, 
+        task.userId,
+        0,
+        [],
+        constraintDeadline // Pass deadline constraint
+      );
       
       if (scheduledTime) {
         console.log('[SmartSchedulingService] Found optimal time:', scheduledTime);
@@ -68,17 +85,15 @@ export class SmartSchedulingService {
         console.log('[SmartSchedulingService] Notification sent:', notification.id);
         
         // Do NOT save the task when no optimal time is found
-        // User must take action via notification (manual schedule, adjust priority, etc.)
         throw new Error(`Could not schedule task "${task.title}": No optimal time slot available`);
       }
     } else {
       // For tasks that don't need smart scheduling (manual tasks or tasks with no dates)
       console.log('[SmartSchedulingService] No smart scheduling needed');
       
-      // ACCEPTANCE CRITERIA: Always use duration to calculate endTime when available
-      // This applies even to manual tasks that already have both startTime and endTime
+      // Always use duration to calculate endTime when available
       if (task.startTime && taskData.estimatedDuration) {
-        const calculatedEndTime = addMinutes(new Date(taskData.startTime), taskData.estimatedDuration);
+        const calculatedEndTime = addMinutes(new Date(task.startTime), taskData.estimatedDuration);
         console.log('[SmartSchedulingService] Overriding endTime with duration calculation:', {
           original: task.endTime,
           calculated: calculatedEndTime
@@ -86,7 +101,7 @@ export class SmartSchedulingService {
         task.endTime = calculatedEndTime;
       }
       
-      // Save the task (whether it has dates or not)
+      // Save the task
       await task.save();
       
       // Add to schedule only if task has both start and end times
@@ -101,6 +116,249 @@ export class SmartSchedulingService {
     });
     
     return task;
+  }
+
+  /**
+   * Update a task with conflict detection and resolution
+   */
+  async updateTaskWithRescheduling(taskId: string, updates: Partial<TaskBody>): Promise<ITask | null> {
+    const task = await Task.findById(taskId);
+    if (!task) return null;
+    
+    const oldStartTime = task.startTime;
+    const oldEndTime = task.endTime;
+    const isManualUpdate = updates.startTime !== undefined || updates.endTime !== undefined;
+    
+    // Calculate new endTime based on duration if needed
+    if (updates.startTime && updates.estimatedDuration) {
+      updates.endTime = addMinutes(new Date(updates.startTime), updates.estimatedDuration);
+      console.log('[updateTaskWithRescheduling] Calculated endTime from duration');
+    } else if (updates.estimatedDuration && task.startTime) {
+      updates.endTime = addMinutes(task.startTime, updates.estimatedDuration);
+    }
+    
+    // If this is a manual time update, check for conflicts
+    if (isManualUpdate && updates.startTime && updates.endTime) {
+      const proposedSlot = {
+        startTime: new Date(updates.startTime),
+        endTime: new Date(updates.endTime)
+      };
+      
+      console.log('[updateTaskWithRescheduling] Checking for conflicts with proposed time:', proposedSlot);
+      
+      const conflictResult = await this.conflictDetectionService.checkForConflicts(
+        task.userId,
+        proposedSlot,
+        taskId
+      );
+      
+      if (conflictResult.hasConflict) {
+        console.log('[updateTaskWithRescheduling] Conflicts detected:', conflictResult);
+        
+        // Handle different conflict types
+        if (conflictResult.conflictType === 'auto-task') {
+          // Automatically reschedule conflicting auto-scheduled tasks
+          await this.rescheduleConflictingAutoTasks(
+            task.userId,
+            proposedSlot,
+            taskId,
+            conflictResult.conflictingItems
+          );
+        } else if (conflictResult.conflictType === 'manual-task') {
+          // Block update and notify about manual task conflict
+          await this.notificationService.sendNotification(
+            NotificationType.MANUAL_TASK_CONFLICT,
+            task.userId,
+            {
+              taskId: taskId,
+              taskTitle: task.title,
+              conflictingTasks: conflictResult.conflictingItems.map(item => ({
+                title: item.title,
+                startTime: item.startTime,
+                endTime: item.endTime
+              })),
+              proposedTime: proposedSlot
+            }
+          );
+          
+          // Block the update
+          throw new Error(`Cannot update task: Conflicts with manually scheduled task "${conflictResult.conflictingItems[0].title}"`);
+        } else if (conflictResult.conflictType === 'event') {
+          // Block update and notify about event conflict
+          await this.notificationService.sendNotification(
+            NotificationType.EVENT_CONFLICT,
+            task.userId,
+            {
+              taskId: taskId,
+              taskTitle: task.title,
+              conflictingEvent: conflictResult.conflictingItems[0],
+              proposedTime: proposedSlot
+            }
+          );
+          
+          // Block the update
+          throw new Error(`Cannot update task: Conflicts with event "${conflictResult.conflictingItems[0].title}"`);
+        } else if (conflictResult.conflictType === 'multiple') {
+          // Handle multiple conflicts
+          const hasManualOrEvent = conflictResult.conflictingItems.some(
+            item => item.type === 'event' || (item.type === 'task' && !item.isAutoSchedule)
+          );
+          
+          if (hasManualOrEvent) {
+            // Block if there's any manual task or event conflict
+            await this.notificationService.sendNotification(
+              NotificationType.MULTIPLE_CONFLICTS,
+              task.userId,
+              {
+                taskId: taskId,
+                taskTitle: task.title,
+                conflicts: conflictResult.conflictingItems,
+                proposedTime: proposedSlot
+              }
+            );
+            
+            throw new Error(`Cannot update task: Multiple conflicts detected`);
+          } else {
+            // All conflicts are auto-scheduled tasks, reschedule them
+            await this.rescheduleConflictingAutoTasks(
+              task.userId,
+              proposedSlot,
+              taskId,
+              conflictResult.conflictingItems
+            );
+          }
+        }
+      }
+    }
+    
+    // Apply updates
+    Object.assign(task, updates);
+    
+    // Check if auto-rescheduling is needed (for auto-scheduled tasks)
+    const oldTaskSelect = this.convertToTaskSelect(task);
+    if (task.isAutoSchedule && SmartScheduling.shouldAutoReschedule(oldTaskSelect, updates)) {
+      // Use originalDeadline if task has deadline constraint
+      const constraintDeadline = task.isDeadlineConstrained ? task.originalDeadline : task.endTime;
+      
+      const scheduledTime = await this.findOptimalTimeForTask(
+        this.convertToTaskSelect(task),
+        task.userId,
+        0,
+        [],
+        constraintDeadline
+      );
+      
+      if (scheduledTime) {
+        task.startTime = scheduledTime.startTime;
+        task.endTime = scheduledTime.endTime;
+        
+        // Update schedule item
+        await ScheduleItem.findOneAndUpdate(
+          { taskId: task.id, userId: task.userId },
+          {
+            startTime: task.startTime,
+            endTime: task.endTime,
+            title: task.title
+          }
+        );
+      }
+    }
+    
+    await task.save();
+    
+    // Update schedule item if times changed
+    if (task.startTime && task.endTime && (oldStartTime !== task.startTime || oldEndTime !== task.endTime)) {
+      await ScheduleItem.findOneAndUpdate(
+        { taskId: task.id, userId: task.userId },
+        {
+          startTime: task.startTime,
+          endTime: task.endTime,
+          title: task.title
+        }
+      );
+    }
+    
+    return task;
+  }
+
+  /**
+   * Reschedule conflicting auto-scheduled tasks
+   */
+  private async rescheduleConflictingAutoTasks(
+    userId: string,
+    proposedSlot: { startTime: Date; endTime: Date },
+    excludeTaskId: string,
+    conflictingItems: any[]
+  ): Promise<void> {
+    const autoTaskIds = conflictingItems
+      .filter(item => item.type === 'task' && item.isAutoSchedule)
+      .map(item => item.id);
+    
+    for (const taskId of autoTaskIds) {
+      const conflictingTask = await Task.findById(taskId);
+      if (!conflictingTask) continue;
+      
+      console.log(`[rescheduleConflictingAutoTasks] Rescheduling task: ${conflictingTask.title}`);
+      
+      const taskSelect = this.convertToTaskSelect(conflictingTask);
+      
+      // Use originalDeadline if task has deadline constraint
+      const constraintDeadline = conflictingTask.isDeadlineConstrained 
+        ? conflictingTask.originalDeadline 
+        : conflictingTask.endTime;
+      
+      const newTime = await this.findOptimalTimeForTask(
+        taskSelect,
+        userId,
+        0,
+        [excludeTaskId, taskId], // Exclude both the updating task and the conflicting task
+        constraintDeadline
+      );
+      
+      if (newTime) {
+        const oldTime = {
+          startTime: conflictingTask.startTime,
+          endTime: conflictingTask.endTime
+        };
+        
+        conflictingTask.startTime = newTime.startTime;
+        conflictingTask.endTime = newTime.endTime;
+        await conflictingTask.save();
+        
+        // Update schedule item
+        await ScheduleItem.findOneAndUpdate(
+          { taskId: conflictingTask._id.toString() },
+          {
+            startTime: conflictingTask.startTime,
+            endTime: conflictingTask.endTime
+          }
+        );
+        
+        // Send notification about automatic rescheduling
+        await this.notificationService.sendNotification(
+          NotificationType.TASK_RESCHEDULED,
+          userId,
+          {
+            taskId: conflictingTask._id.toString(),
+            taskTitle: conflictingTask.title,
+            oldTime,
+            newTime,
+            reason: 'Automatically rescheduled due to manual task update'
+          }
+        );
+      } else {
+        // Could not find new time for conflicting task
+        await this.notificationService.sendNotification(
+          NotificationType.NO_OPTIMAL_TIME,
+          userId,
+          {
+            taskId: conflictingTask._id.toString(),
+            taskTitle: conflictingTask.title,
+            reason: 'Could not find alternative time slot after conflict'
+          }
+        );
+      }
+    }
   }
 
   /**
@@ -279,9 +537,19 @@ export class SmartSchedulingService {
     task: TaskSelect,
     userId: string,
     daysToLookAhead: number = 0,
-    excludeTaskIds: string[] = []
+    excludeTaskIds: string[] = [],
+    deadlineConstraint?: Date | null
   ): Promise<{ startTime: Date; endTime: Date } | null> {
     try {
+      // Check deadline constraint
+      if (deadlineConstraint && daysToLookAhead > 0) {
+        const lookAheadDate = addDays(new Date(), daysToLookAhead);
+        if (lookAheadDate > deadlineConstraint) {
+          console.log('[findOptimalTimeForTask] Exceeded deadline constraint');
+          return null;
+        }
+      }
+      
       // Check if we've exceeded the scheduling window (6 days for planner)
       if (daysToLookAhead > 6) {
         console.log('[findOptimalTimeForTask] Exceeded 6-day planner window');
@@ -306,7 +574,8 @@ export class SmartSchedulingService {
         tag: task.tag,
         duration: taskDuration,
         energyRequirements,
-        priority: task.priority
+        priority: task.priority,
+        deadlineConstraint
       });
       
       // Get user's sleep schedule for late wind-down filtering
@@ -316,10 +585,9 @@ export class SmartSchedulingService {
         context,
         taskDuration,
         energyRequirements,
-        task.endTime
+        deadlineConstraint || task.endTime
       );
       
-      console.log('[removing wind_down_slots] Available slots before filtering:', availableSlots.length);
       // Filter out late wind-down period slots (2 hours before bedtime)
       if (user?.sleepSchedule) {
         availableSlots = await this.filterLateWindDownSlots(
@@ -337,6 +605,13 @@ export class SmartSchedulingService {
         );
       }
       
+      // Additional filtering for deadline constraint
+      if (deadlineConstraint) {
+        availableSlots = availableSlots.filter(slot => 
+          slot.endTime <= deadlineConstraint
+        );
+      }
+      
       console.log('[findOptimalTimeForTask] Available slots after filtering:', availableSlots.length);
       if (availableSlots.length > 0) {
         console.log('[findOptimalTimeForTask] First few slots:', availableSlots.slice(0, 3).map(s => ({
@@ -351,13 +626,13 @@ export class SmartSchedulingService {
         // Check if we should look ahead based on deadline constraints
         const nextDay = task.startTime ? addDays(task.startTime, 1) : addDays(new Date(), 1);
         console.log('[findOptimalTimeForTask] Next day:', nextDay);
-        console.log('[findOptimalTimeForTask] Task deadline:', task.endTime);
+        console.log('[findOptimalTimeForTask] Deadline constraint:', deadlineConstraint);
         const nextDayStart = startOfDay(nextDay);
         
         // Don't look ahead if there's a deadline and the next day would exceed it
-        if (task.endTime && nextDayStart >= task.endTime) {
-          console.log('[findOptimalTimeForTask] Cannot look ahead: would exceed task deadline', {
-            deadline: task.endTime,
+        if (deadlineConstraint && nextDayStart >= deadlineConstraint) {
+          console.log('[findOptimalTimeForTask] Cannot look ahead: would exceed deadline constraint', {
+            deadline: deadlineConstraint,
             nextDay: nextDayStart
           });
           return null;
@@ -372,14 +647,19 @@ export class SmartSchedulingService {
           nextDayTask.startTime = nextDayStart;
           
           // Recursively call this function with the incremented daysToLookAhead counter
-          return this.findOptimalTimeForTask(nextDayTask, userId, daysToLookAhead + 1, excludeTaskIds);
+          return this.findOptimalTimeForTask(
+            nextDayTask, 
+            userId, 
+            daysToLookAhead + 1, 
+            excludeTaskIds,
+            deadlineConstraint
+          );
         }
         
         console.log('[findOptimalTimeForTask] Reached maximum days to look ahead (6 days), no slots found');
         return null;
       }
       
-      // ACCEPTANCE CRITERIA: Optimize for best energy match within the window
       // Sort slots by energy level (descending) and then by time (ascending)
       const sortedSlots = availableSlots.sort((a, b) => {
         // First sort by energy level (higher is better)
@@ -773,49 +1053,7 @@ export class SmartSchedulingService {
   /**
    * Update a task and reschedule if necessary
    */
-  async updateTaskWithRescheduling(taskId: string, updates: Partial<TaskBody>): Promise<ITask | null> {
-    const task = await Task.findById(taskId);
-    if (!task) return null;
-    
-    const oldTaskSelect = this.convertToTaskSelect(task);
-    
-    // ACCEPTANCE CRITERIA: Always use duration to calculate endTime
-    if (updates.startTime && updates.estimatedDuration) {
-      updates.endTime = addMinutes(new Date(updates.startTime), updates.estimatedDuration);
-      console.log('[updateTaskWithRescheduling] Overriding endTime with duration');
-    } else if (updates.estimatedDuration && task.startTime) {
-      // If only duration is updated, recalculate endTime
-      updates.endTime = addMinutes(task.startTime, updates.estimatedDuration);
-    }
-    
-    // Apply updates
-    Object.assign(task, updates);
-    
-    // Check if rescheduling is needed
-    if (SmartScheduling.shouldAutoReschedule(oldTaskSelect, updates)) {
-      const scheduledTime = await this.findOptimalTimeForTask(this.convertToTaskSelect(task), task.userId);
-      if (scheduledTime) {
-        task.startTime = scheduledTime.startTime;
-        task.endTime = scheduledTime.endTime;
-        
-        // Check for and handle any displacements
-        await this.handleTaskDisplacement(task);
-        
-        // Update schedule item
-        await ScheduleItem.findOneAndUpdate(
-          { taskId: task.id, userId: task.userId },
-          {
-            startTime: task.startTime,
-            endTime: task.endTime,
-            title: task.title
-          }
-        );
-      }
-    }
-    
-    await task.save();
-    return task;
-  }
+
 
   /**
    * Reschedule tasks when a new calendar event is added

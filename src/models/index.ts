@@ -21,6 +21,8 @@ export interface ITask extends Document {
   actualStartTime?: Date;
   actualEndTime?: Date;
   subtasks: string[];
+  originalDeadline?: Date;
+  isDeadlineConstrained?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -42,6 +44,8 @@ const TaskSchema = new Schema<ITask>({
   endTime: { type: Date },
   actualStartTime: { type: Date },
   actualEndTime: { type: Date },
+  originalDeadline: { type: Date },
+  isDeadlineConstrained: { type: Boolean, default: false },
   subtasks: [{ type: String }]
 }, { timestamps: true });
 
